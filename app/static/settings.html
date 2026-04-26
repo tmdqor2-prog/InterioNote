@@ -1,0 +1,752 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>설정 · InterioNote</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script defer src="https://unpkg.com/alpinejs@3.14.1/dist/cdn.min.js"></script>
+  <style>
+    body { font-family: 'Segoe UI', 'Malgun Gothic', system-ui, sans-serif; }
+    [x-cloak] { display: none !important; }
+  </style>
+</head>
+<body class="bg-gray-50 text-gray-900">
+
+<div x-data="settingsPage()" x-init="init()" class="min-h-screen">
+
+  <header class="bg-white border-b border-gray-200 sticky top-0 z-10">
+    <div class="max-w-3xl mx-auto px-6 py-3 flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <a href="/" class="text-gray-400 hover:text-gray-700">← 홈</a>
+        <h1 class="text-lg font-bold flex items-center gap-2">⚙️ 설정</h1>
+      </div>
+      <div class="text-xs text-gray-500" x-show="loadedSize">
+        현재 메모리에 로드된 모델: <code class="bg-gray-100 px-1 rounded" x-text="loadedSize"></code>
+      </div>
+    </div>
+  </header>
+
+  <main class="max-w-3xl mx-auto px-6 py-6 space-y-6">
+
+    <!-- ============ 업데이트 + 앱 제거 (Phase 7B-3) ============ -->
+    <section class="bg-white rounded-xl border border-gray-200 p-5">
+      <h2 class="font-semibold flex items-center gap-2 mb-3">
+        <span>📦</span> 앱 업데이트
+      </h2>
+
+      <div class="flex items-center gap-3 mb-3">
+        <div class="text-sm">
+          현재 버전:
+          <code class="bg-gray-100 px-2 py-0.5 rounded font-mono"
+                x-text="'v' + (appVersion || '?')"></code>
+        </div>
+        <button @click="checkUpdate()" :disabled="checkingUpdate"
+                class="text-sm bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded disabled:bg-gray-300">
+          <span x-show="!checkingUpdate">업데이트 확인</span>
+          <span x-show="checkingUpdate" x-cloak>확인 중...</span>
+        </button>
+      </div>
+
+      <!-- 결과: 최신 -->
+      <div x-show="updateResult && updateResult.is_latest" x-cloak
+           class="bg-emerald-50 border border-emerald-300 rounded-lg p-3 text-sm text-emerald-900">
+        ✅ <strong>가장 최신 버전입니다</strong>
+        <span class="text-xs text-emerald-700">
+          (GitHub 최신: v<span x-text="updateResult.latest_version"></span>)
+        </span>
+      </div>
+
+      <!-- 결과: 새 버전 발견 -->
+      <div x-show="updateResult && updateResult.newer_available" x-cloak
+           class="bg-amber-50 border border-amber-300 rounded-lg p-3 text-sm">
+        <div class="font-semibold text-amber-900 mb-1">
+          🔔 새 버전 발견 — v<span x-text="updateResult.latest_version"></span>
+        </div>
+        <div class="text-xs text-amber-800 mb-2">
+          출시일: <span x-text="(updateResult.published_at || '').slice(0, 10)"></span>
+        </div>
+        <div x-show="updateResult.release_body" x-cloak
+             class="text-xs bg-white border border-amber-200 rounded p-2 mb-2 max-h-40 overflow-y-auto whitespace-pre-wrap"
+             x-text="updateResult.release_body"></div>
+        <button @click="openReleasePage()"
+                class="text-sm bg-amber-600 hover:bg-amber-700 text-white px-3 py-1.5 rounded">
+          📥 다운로드 페이지 열기
+        </button>
+      </div>
+
+      <!-- 결과: 릴리스 없음 -->
+      <div x-show="updateResult && updateResult.has_release === false" x-cloak
+           class="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm text-blue-900">
+        ℹ <strong>아직 출시된 릴리스가 없습니다.</strong>
+        <div class="text-xs mt-1">GitHub 저장소 자체는 정상 접속됩니다.</div>
+      </div>
+
+      <!-- 결과: 실패 -->
+      <div x-show="updateResult && updateResult.ok === false" x-cloak
+           class="bg-red-50 border border-red-300 rounded-lg p-3 text-sm text-red-900">
+        ⚠ <strong>업데이트 확인 실패</strong>
+        <div class="text-xs mt-1 font-mono whitespace-pre-wrap break-all"
+             x-text="updateResult.reason"></div>
+      </div>
+
+      <div class="mt-3 text-[11px] text-gray-400 leading-relaxed">
+        새 버전이 나오면 위 버튼으로 확인하거나 시작 시 팝업으로 자동 안내됩니다.
+        다운로드 후 인스톨러를 실행하면 사용자 데이터(고객·녹음·DB)는 그대로 유지된 채 앱 코드만 업데이트됩니다.
+      </div>
+    </section>
+
+
+    <!-- ============ 앱 제거 안내 (Phase 7B-3) ============ -->
+    <section class="bg-white rounded-xl border border-gray-200 p-5">
+      <h2 class="font-semibold flex items-center gap-2 mb-3">
+        <span>🗑</span> 앱 제거
+      </h2>
+      <ol class="text-sm text-gray-700 space-y-1.5 list-decimal list-inside leading-relaxed">
+        <li>
+          <strong>Windows 설정 → 앱 → 설치된 앱</strong> (또는 제어판 → 프로그램 추가/제거) 에서
+          <code class="bg-gray-100 px-1 rounded">InterioNote</code> 검색 → 제거
+        </li>
+        <li>
+          또는 설치 폴더의 <code class="bg-gray-100 px-1 rounded">unins000.exe</code> 직접 실행
+          (.exe 인스톨 판에서만 가능)
+        </li>
+      </ol>
+
+      <div class="mt-3 bg-amber-50 border border-amber-200 rounded p-3 text-xs text-amber-900 leading-relaxed">
+        ⚠ 앱 제거 시 <strong>고객 폴더·녹음 파일·설정 DB 는 자동 삭제되지 않습니다</strong>.
+        실수로 삭제 방지를 위함입니다. 완전히 정리하시려면 아래 버튼으로 폴더를 열어 직접 삭제하세요.
+      </div>
+
+      <div class="mt-3 grid grid-cols-2 gap-2">
+        <button @click="openDataFolder('user_data_dir')"
+                class="text-sm px-3 py-2 border border-gray-300 hover:bg-gray-50 rounded">
+          📁 사용자 데이터 폴더 열기
+          <div class="text-[10px] text-gray-500 font-mono mt-0.5">%APPDATA%\InterioNote</div>
+        </button>
+        <button @click="openDataFolder('user_cache_dir')"
+                class="text-sm px-3 py-2 border border-gray-300 hover:bg-gray-50 rounded">
+          📁 모델·임시 캐시 폴더 열기
+          <div class="text-[10px] text-gray-500 font-mono mt-0.5">%LOCALAPPDATA%\InterioNote</div>
+        </button>
+      </div>
+    </section>
+
+
+    <!-- ============ 저장 위치 (Phase 6A) ============ -->
+    <section class="bg-white rounded-xl border border-gray-200 p-5">
+      <h2 class="font-semibold flex items-center gap-2 mb-3">
+        <span>📁</span> 고객 폴더 저장 위치
+      </h2>
+
+      <label class="block text-sm font-medium text-gray-700 mb-1">
+        고객 폴더 루트 경로
+      </label>
+      <div class="flex gap-2">
+        <input type="text" x-model="settings.paths.client_root"
+               placeholder="C:\Users\&lt;사용자&gt;\Documents\..."
+               class="flex-1 px-3 py-2 border border-gray-300 rounded-md text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500" />
+        <button type="button" @click="browseRootPath()"
+                :disabled="picking"
+                class="shrink-0 px-3 py-2 text-sm bg-gray-100 hover:bg-gray-200 border border-gray-300 rounded-md disabled:opacity-50 disabled:cursor-wait"
+                title="파일 탐색기에서 폴더 선택">
+          <span x-show="!picking">📂 찾아보기</span>
+          <span x-show="picking" x-cloak>여는 중…</span>
+        </button>
+      </div>
+      <div class="flex items-center justify-between mt-2 text-xs">
+        <div>
+          <span x-show="settings.paths.client_root_exists" class="text-emerald-700">✓ 폴더 존재 확인됨</span>
+          <span x-show="!settings.paths.client_root_exists" class="text-amber-700">⚠ 해당 경로의 폴더가 존재하지 않습니다</span>
+        </div>
+        <div class="flex gap-2">
+          <label class="flex items-center gap-1 text-gray-600">
+            <input type="checkbox" x-model="rootCreateIfMissing" class="cursor-pointer" />
+            <span>저장 시 폴더 자동 생성</span>
+          </label>
+          <button @click="saveClientRoot()" :disabled="savingRoot"
+                  class="text-sm bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded disabled:bg-gray-300">
+            <span x-show="!savingRoot">저장</span>
+            <span x-show="savingRoot" x-cloak>저장 중...</span>
+          </button>
+        </div>
+      </div>
+      <div class="mt-2 text-xs text-gray-500 leading-relaxed">
+        새 PC 또는 다른 사용자가 이 앱을 사용할 때, 본인의 고객 폴더가 있는 위치로 변경하세요.
+        변경 즉시 홈 화면의 고객 목록이 새 위치 기준으로 갱신됩니다.
+      </div>
+    </section>
+
+
+    <!-- ============ 폴더 템플릿 (Phase 6A) ============ -->
+    <section class="bg-white rounded-xl border border-gray-200 p-5">
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="font-semibold flex items-center gap-2">
+          <span>🗂</span> 신규 고객 자동 생성 서브폴더
+        </h2>
+        <div class="flex gap-2">
+          <button @click="resetFolderTemplate()" :disabled="savingTemplate"
+                  class="text-xs text-gray-600 hover:text-gray-900 px-2 py-1 border border-gray-300 rounded">
+            기본값 복원
+          </button>
+          <button @click="saveFolderTemplate()" :disabled="savingTemplate"
+                  class="text-sm bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded disabled:bg-gray-300">
+            <span x-show="!savingTemplate">저장</span>
+            <span x-show="savingTemplate" x-cloak>저장 중...</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="text-xs text-gray-500 mb-3 leading-relaxed">
+        새 고객 폴더를 만들 때 자동으로 생성될 서브폴더 목록입니다.
+        디자이너마다 정리 방식이 달라서 자유롭게 추가·삭제하세요.
+        <strong class="text-blue-700">'상담기록'</strong>은 시스템 필수라 자동 유지됩니다.
+      </div>
+
+      <ul class="space-y-2">
+        <template x-for="(folder, idx) in settings.paths.folder_template" :key="idx">
+          <li class="flex items-center gap-2">
+            <span class="text-gray-400 text-xs font-mono w-6 text-right" x-text="(idx + 1) + '.'"></span>
+            <input type="text"
+                   x-model="settings.paths.folder_template[idx]"
+                   :readonly="folder === settings.paths.required_folder"
+                   :class="folder === settings.paths.required_folder ? 'bg-blue-50 border-blue-200 text-blue-900' : 'border-gray-300'"
+                   class="flex-1 px-3 py-1.5 border rounded-md text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            <button type="button"
+                    @click="removeFolder(idx)"
+                    :disabled="folder === settings.paths.required_folder || settings.paths.folder_template.length <= 1"
+                    :class="folder === settings.paths.required_folder ? 'text-gray-300 cursor-not-allowed' : 'text-red-600 hover:bg-red-50'"
+                    class="w-9 h-9 rounded-md border border-gray-300 text-lg leading-none flex items-center justify-center"
+                    :title="folder === settings.paths.required_folder ? '시스템 필수 폴더 (제거 불가)' : '제거'">
+              −
+            </button>
+          </li>
+        </template>
+      </ul>
+
+      <button type="button" @click="addFolder()"
+              class="mt-3 w-full py-2 border-2 border-dashed border-gray-300 rounded-md text-sm text-gray-600 hover:border-blue-400 hover:text-blue-700 hover:bg-blue-50">
+        + 폴더 추가
+      </button>
+
+      <div class="mt-3 text-[11px] text-gray-400 leading-relaxed">
+        ※ 변경 후 새로 만드는 고객부터 적용됩니다.
+        기존 고객 폴더는 그대로 유지되며, 클릭 시 누락된 서브폴더만 자동 보충됩니다 (기존 동작 유지).
+      </div>
+    </section>
+
+
+    <!-- ============ Whisper 모델 ============ -->
+    <section class="bg-white rounded-xl border border-gray-200 p-5">
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="font-semibold flex items-center gap-2">
+          <span>🎙</span> 음성 인식 모델 (Whisper)
+        </h2>
+        <button @click="saveWhisper()"
+                :disabled="savingWhisper"
+                class="text-sm bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded disabled:bg-gray-300">
+          <span x-show="!savingWhisper">저장</span>
+          <span x-show="savingWhisper" x-cloak>저장 중...</span>
+        </button>
+      </div>
+
+      <div class="space-y-2">
+        <template x-for="m in modelOptions" :key="m.size">
+          <label class="flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition"
+                 :class="settings.whisper.model_size === m.size ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:border-blue-300'">
+            <input type="radio" name="model" :value="m.size" x-model="settings.whisper.model_size" class="mt-1" />
+            <div class="flex-1 min-w-0">
+              <div class="flex items-center gap-2">
+                <span class="font-semibold" x-text="m.label"></span>
+                <span class="text-xs text-gray-500" x-text="m.size"></span>
+                <span x-show="m.recommended"
+                      class="text-[10px] px-1.5 py-0.5 bg-blue-100 text-blue-800 rounded">권장</span>
+                <span x-show="m.size === settings.whisper.model_size"
+                      class="text-[10px] px-1.5 py-0.5 bg-green-100 text-green-800 rounded">현재</span>
+              </div>
+              <div class="text-xs text-gray-600 mt-1" x-text="m.desc"></div>
+              <div class="text-[11px] text-gray-400 mt-0.5">
+                다운로드: <span x-text="m.size_mb"></span>MB · CPU 부담: <span x-text="m.cpu"></span>
+              </div>
+            </div>
+          </label>
+        </template>
+      </div>
+
+      <!-- beam_size -->
+      <div class="mt-4 pt-4 border-t border-gray-100">
+        <label class="block text-sm font-medium text-gray-700 mb-1">
+          정확도 vs 속도 (beam_size: <span x-text="settings.whisper.beam_size"></span>)
+        </label>
+        <input type="range" min="1" max="8" step="1" x-model.number="settings.whisper.beam_size"
+               class="w-full" />
+        <div class="flex justify-between text-[10px] text-gray-500 font-mono">
+          <span>1 (빠름)</span><span>5 (권장)</span><span>8 (정확)</span>
+        </div>
+      </div>
+
+      <!-- 모델 변경 시 안내 -->
+      <div x-show="whisperResult.needs_warmup" x-cloak
+           class="mt-3 bg-amber-50 border border-amber-300 rounded-lg p-3 text-sm text-amber-900">
+        ⚠ 모델 사이즈를 변경했습니다.
+        다음 녹음 시작 시 자동으로 재로딩됩니다 (필요 시 다운로드).
+        지금 녹음을 시작하려면 <a href="/live" class="underline">/live 페이지</a>에서 warmup 을 다시 해주세요.
+      </div>
+    </section>
+
+
+    <!-- ============ 키워드 사전 ============ -->
+    <section class="bg-white rounded-xl border border-gray-200 p-5">
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="font-semibold flex items-center gap-2">
+          <span>📚</span> 인테리어 키워드 사전
+          <span class="text-xs text-gray-400 font-normal">(AI 가 잘 알아듣게 하는 힌트)</span>
+        </h2>
+        <div class="flex gap-2">
+          <button @click="resetVocab()"
+                  :disabled="savingVocab"
+                  class="text-xs text-gray-600 hover:text-gray-900 px-2 py-1 border border-gray-300 rounded">
+            기본값 복원
+          </button>
+          <button @click="saveVocab()"
+                  :disabled="savingVocab"
+                  class="text-sm bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded disabled:bg-gray-300">
+            <span x-show="!savingVocab">저장</span>
+            <span x-show="savingVocab" x-cloak>저장 중...</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="text-xs text-gray-500 mb-2 leading-relaxed">
+        한 줄에 하나의 카테고리. 자주 쓰시는 자재명·브랜드·평형 같은 단어를 추가하면 인식률이 올라갑니다.
+        <br>예) <code class="bg-gray-100 px-1 rounded">우리집 단지: 잠실 리센츠, 트리지움, 엘스</code>
+      </div>
+
+      <textarea x-model="settings.whisper.interior_vocab"
+                rows="14"
+                class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500 leading-relaxed"></textarea>
+
+      <div class="text-[10px] text-gray-400 mt-1 font-mono">
+        문자 수: <span x-text="(settings.whisper.interior_vocab || '').length"></span>
+        (Whisper 권장 1000자 이하 — 너무 길면 무시될 수 있음)
+      </div>
+    </section>
+
+
+    <!-- ============ 노이즈 억제 ============ -->
+    <section class="bg-white rounded-xl border border-gray-200 p-5">
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="font-semibold flex items-center gap-2">
+          <span>🔇</span> 노이즈 억제 (silero-denoise)
+        </h2>
+        <label class="inline-flex items-center cursor-pointer">
+          <input type="checkbox" class="sr-only peer"
+                 :checked="settings.noise.suppression_enabled"
+                 @change="toggleNoise($event.target.checked)" />
+          <div class="w-11 h-6 bg-gray-200 rounded-full peer peer-checked:bg-blue-600
+                      after:content-[''] after:absolute after:bg-white after:rounded-full
+                      after:h-5 after:w-5 after:transition-all
+                      peer-checked:after:translate-x-5
+                      relative after:left-[2px] after:top-[2px]"></div>
+        </label>
+      </div>
+
+      <div class="text-sm text-gray-600 leading-relaxed">
+        매장 음악·잡음을 AI 모델(silero-denoise)이 실시간으로 제거합니다.
+        <strong>변경 후 다음 녹음부터 반영됩니다.</strong>
+        조용한 환경에서는 꺼두면 CPU 부담이 줄어듭니다.
+      </div>
+
+      <div x-show="settings.noise.suppression_enabled" x-cloak
+           class="mt-3 bg-blue-50 border border-blue-200 rounded-lg p-3 text-xs text-blue-900 space-y-1 leading-relaxed">
+        <div>· 첫 사용 시 모델 자동 다운로드 (~52MB, 인터넷 필요)</div>
+        <div>· CPU 부담: 100ms 블록당 약 30~60ms 추가 처리</div>
+        <div>· 카드 표시까지 0.3~0.5초 정도 더 걸릴 수 있음</div>
+        <div>· 저장된 MP3 도 노이즈 제거된 음원으로 저장됨 (재생 시 더 깨끗)</div>
+      </div>
+    </section>
+
+
+    <!-- ============ VAD ============ -->
+    <section class="bg-white rounded-xl border border-gray-200 p-5">
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="font-semibold flex items-center gap-2">
+          <span>🎚</span> VAD 임계값 (음성 vs 잡음 구분)
+        </h2>
+        <button @click="saveVad()"
+                :disabled="savingVad"
+                class="text-sm bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded disabled:bg-gray-300">
+          <span x-show="!savingVad">저장</span>
+          <span x-show="savingVad" x-cloak>저장 중...</span>
+        </button>
+      </div>
+
+      <label class="block text-sm text-gray-600 mb-1">
+        threshold: <span class="font-mono" x-text="settings.vad.threshold.toFixed(2)"></span>
+      </label>
+      <input type="range" min="0.30" max="0.85" step="0.05"
+             x-model.number="settings.vad.threshold"
+             class="w-full" />
+      <div class="flex justify-between text-[10px] text-gray-500 font-mono">
+        <span>0.30 (민감)</span><span>0.50 (기본)</span><span>0.85 (엄격)</span>
+      </div>
+
+      <div class="mt-2 text-xs text-gray-500 leading-relaxed">
+        잡음을 발화로 잘못 잡는다면 값을 올리세요 (0.6~0.7 권장).
+        본인 목소리가 자주 끊긴다면 값을 낮추세요.
+      </div>
+
+      <div class="mt-2 text-[11px] text-amber-700">
+        ※ 변경 후 다음 녹음 세션부터 반영됩니다.
+      </div>
+    </section>
+
+
+    <!-- 결과 토스트 -->
+    <div x-show="toast.show" x-cloak
+         class="fixed bottom-6 right-6 bg-gray-900 text-white text-sm px-4 py-3 rounded-lg shadow-lg"
+         :class="toast.kind === 'error' ? 'bg-red-700' : 'bg-gray-900'"
+         x-text="toast.msg"></div>
+  </main>
+</div>
+
+
+<script>
+function settingsPage() {
+  return {
+    loading: true,
+    settings: {
+      whisper: { model_size: 'small', beam_size: 5, interior_vocab: '', model_choices: [], default_interior_vocab: '' },
+      noise: { suppression_enabled: false },
+      vad: { threshold: 0.5 },
+      paths: { client_root: '', client_root_exists: false, folder_template: [], required_folder: '상담기록', default_folder_template: [] },
+    },
+    loadedSize: '',
+    savingWhisper: false,
+    savingVocab: false,
+    savingVad: false,
+    savingRoot: false,
+    savingTemplate: false,
+    rootCreateIfMissing: false,
+    picking: false,
+
+    // Phase 7B-3: 업데이트 확인
+    appVersion: '?',
+    checkingUpdate: false,
+    updateResult: null,
+    dataPaths: {},
+    whisperResult: {},
+    toast: { show: false, msg: '', kind: 'ok' },
+    noiseModuleReady: false,   // Phase 5B 가 적용되면 true 로 (현재는 항상 false)
+
+    modelOptions: [
+      { size: 'tiny',     label: '경량 (Tiny)',   size_mb: 75,  cpu: '매우 낮음', desc: '빠르고 가볍지만 한국어 정확도 낮음. 저사양 PC 또는 시연용.' },
+      { size: 'base',     label: '기본 (Base)',    size_mb: 140, cpu: '낮음',     desc: '한국어 정확도가 부족. 매장 환경 비추천.' },
+      { size: 'small',    label: '추천 (Small)',   size_mb: 460, cpu: '중간',     desc: '한국어 정확도와 속도 균형. 일반 노트북에 권장.', recommended: true },
+      { size: 'medium',   label: '정밀 (Medium)',  size_mb: 1500, cpu: '높음',    desc: '정확도 매우 좋음. 실시간이 약간 느려질 수 있음. RAM 8GB+ 필요.' },
+      { size: 'large-v3', label: '최고 (Large-v3)', size_mb: 3000, cpu: '매우 높음', desc: '최고 정확도. CPU 환경에서는 실시간 어려움. 사후 분석용.' },
+    ],
+
+    async init() {
+      await this.load();
+    },
+
+    async load() {
+      this.loading = true;
+      try {
+        const r = await fetch('/api/settings');
+        const data = await r.json();
+        this.settings = {
+          whisper: data.whisper,
+          noise: data.noise,
+          vad: data.vad,
+          paths: data.paths || {client_root: '', client_root_exists: false, folder_template: [], required_folder: '상담기록'},
+        };
+      } catch (e) {
+        this.flash('설정 로드 실패: ' + e, 'error');
+      }
+      // 앱 버전 + 데이터 경로 동시 로드
+      try {
+        const r2 = await fetch('/api/app/info');
+        if (r2.ok) {
+          const info = await r2.json();
+          this.appVersion = info.version || '?';
+        }
+      } catch (e) {}
+      try {
+        if (window.pywebview && window.pywebview.api && window.pywebview.api.get_data_paths) {
+          const paths = await window.pywebview.api.get_data_paths();
+          if (paths && !paths.error) this.dataPaths = paths;
+        }
+      } catch (e) {}
+      this.loading = false;
+    },
+
+    // Phase 7B-3 — 업데이트 확인
+    async checkUpdate() {
+      this.checkingUpdate = true;
+      this.updateResult = null;
+      try {
+        const r = await fetch('/api/app/check-update');
+        const data = await r.json();
+        this.updateResult = data;
+      } catch (e) {
+        this.updateResult = {
+          ok: false,
+          reason: '요청 실패: ' + (e.message || e),
+        };
+      } finally {
+        this.checkingUpdate = false;
+      }
+    },
+
+    openReleasePage() {
+      const url = this.updateResult && this.updateResult.release_url;
+      if (!url) return;
+      // pywebview JS API 가 있으면 외부 브라우저로, 없으면 새 탭
+      if (window.pywebview && window.pywebview.api && window.pywebview.api.open_external_url) {
+        window.pywebview.api.open_external_url(url);
+      } else {
+        window.open(url, '_blank');
+      }
+    },
+
+    async openDataFolder(key) {
+      // dataPaths 에 해당 key 의 절대경로가 있어야 함
+      const path = this.dataPaths && this.dataPaths[key];
+      if (!path) {
+        this.flash('데이터 경로를 알 수 없습니다 (앱 창 안에서만 동작)', 'error');
+        return;
+      }
+      if (!(window.pywebview && window.pywebview.api && window.pywebview.api.open_in_explorer)) {
+        this.flash('탐색기 열기는 앱 창 안에서만 동작합니다', 'error');
+        return;
+      }
+      try {
+        const r = await window.pywebview.api.open_in_explorer(path);
+        if (r && r.error) this.flash('폴더 열기 실패: ' + r.error, 'error');
+      } catch (e) {
+        this.flash('폴더 열기 실패: ' + e, 'error');
+      }
+    },
+
+    // --- 저장 위치 — 파일 탐색기 호출 ---
+    async browseRootPath() {
+      // pywebview JS API 가 노출되어 있는지 확인
+      if (!(window.pywebview && window.pywebview.api && window.pywebview.api.pick_folder)) {
+        alert(
+          '폴더 선택 기능은 InterioNote 앱 창 안에서만 동작합니다.\n' +
+          '(브라우저로 열려 있는 경우 사용 불가)'
+        );
+        return;
+      }
+      this.picking = true;
+      try {
+        const result = await window.pywebview.api.pick_folder(this.settings.paths.client_root || '');
+        // 취소
+        if (result === '' || result === null || result === undefined) return;
+        // 에러
+        if (typeof result === 'object' && result.error) {
+          this.flash('폴더 선택 실패: ' + result.error, 'error');
+          return;
+        }
+        // 성공
+        this.settings.paths.client_root = String(result);
+      } catch (e) {
+        this.flash('폴더 선택 실패: ' + (e.message || e), 'error');
+      } finally {
+        this.picking = false;
+      }
+    },
+
+    // --- 저장 위치 ---
+    async saveClientRoot() {
+      this.savingRoot = true;
+      try {
+        const r = await fetch('/api/settings/client-root', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({
+            path: this.settings.paths.client_root,
+            create_if_missing: this.rootCreateIfMissing,
+          }),
+        });
+        if (!r.ok) {
+          const err = await r.json().catch(() => ({detail: r.statusText}));
+          throw new Error(err.detail || ('HTTP ' + r.status));
+        }
+        const data = await r.json();
+        this.settings.paths.client_root = data.path;
+        this.settings.paths.client_root_exists = data.exists;
+        let msg = '저장 위치 변경됨';
+        if (data.created) msg += ' (폴더 생성됨)';
+        if (!data.exists) msg += ' — ⚠ 해당 경로 없음';
+        this.flash(msg, data.exists ? 'ok' : 'error');
+      } catch (e) {
+        this.flash('저장 실패: ' + e.message, 'error');
+      } finally {
+        this.savingRoot = false;
+      }
+    },
+
+    // --- 폴더 템플릿 ---
+    addFolder() {
+      if (!this.settings.paths) return;
+      this.settings.paths.folder_template.push('새 폴더');
+    },
+
+    removeFolder(idx) {
+      const arr = this.settings.paths.folder_template;
+      const required = this.settings.paths.required_folder;
+      if (arr[idx] === required) return;  // 보호
+      if (arr.length <= 1) return;
+      arr.splice(idx, 1);
+    },
+
+    async saveFolderTemplate() {
+      this.savingTemplate = true;
+      try {
+        // 빈 칸 자동 제거 + 중복 안내
+        const folders = (this.settings.paths.folder_template || [])
+          .map(s => (s || '').trim())
+          .filter(s => s.length > 0);
+        const r = await fetch('/api/settings/folder-template', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({folders: folders}),
+        });
+        if (!r.ok) {
+          const err = await r.json().catch(() => ({detail: r.statusText}));
+          throw new Error(err.detail || ('HTTP ' + r.status));
+        }
+        const data = await r.json();
+        this.settings.paths.folder_template = data.folder_template;
+        this.flash('폴더 템플릿 저장됨 (' + data.folder_template.length + '개)');
+      } catch (e) {
+        this.flash('저장 실패: ' + e.message, 'error');
+      } finally {
+        this.savingTemplate = false;
+      }
+    },
+
+    async resetFolderTemplate() {
+      if (!confirm('기본 폴더 템플릿으로 되돌릴까요?\n현재 편집한 내용이 사라집니다.')) return;
+      this.savingTemplate = true;
+      try {
+        const r = await fetch('/api/settings/folder-template/reset', {method: 'POST'});
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        const data = await r.json();
+        this.settings.paths.folder_template = data.folder_template;
+        this.flash('기본 템플릿으로 복원됨');
+      } catch (e) {
+        this.flash('복원 실패: ' + e, 'error');
+      } finally {
+        this.savingTemplate = false;
+      }
+    },
+
+    async saveWhisper() {
+      this.savingWhisper = true;
+      try {
+        const r = await fetch('/api/settings/whisper', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({
+            model_size: this.settings.whisper.model_size,
+            beam_size: this.settings.whisper.beam_size,
+          }),
+        });
+        if (!r.ok) {
+          const err = await r.json().catch(() => ({detail: r.statusText}));
+          throw new Error(err.detail || ('HTTP ' + r.status));
+        }
+        const data = await r.json();
+        this.whisperResult = data;
+        this.loadedSize = data.loaded_in_memory || '';
+        this.flash('Whisper 설정 저장됨' + (data.needs_warmup ? ' (다시 warmup 필요)' : ''));
+      } catch (e) {
+        this.flash('저장 실패: ' + e.message, 'error');
+      } finally {
+        this.savingWhisper = false;
+      }
+    },
+
+    async saveVocab() {
+      this.savingVocab = true;
+      try {
+        const r = await fetch('/api/settings/vocab', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({text: this.settings.whisper.interior_vocab || ''}),
+        });
+        if (!r.ok) {
+          const err = await r.json().catch(() => ({detail: r.statusText}));
+          throw new Error(err.detail || ('HTTP ' + r.status));
+        }
+        const data = await r.json();
+        this.flash('키워드 저장됨 (' + data.char_count + '자)');
+      } catch (e) {
+        this.flash('저장 실패: ' + e.message, 'error');
+      } finally {
+        this.savingVocab = false;
+      }
+    },
+
+    async resetVocab() {
+      if (!confirm('키워드를 기본값으로 되돌릴까요? 추가하신 단어가 사라집니다.')) return;
+      try {
+        const r = await fetch('/api/settings/vocab/reset', {method: 'POST'});
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        const data = await r.json();
+        this.settings.whisper.interior_vocab = data.interior_vocab;
+        this.flash('기본 키워드로 복원됨');
+      } catch (e) {
+        this.flash('복원 실패: ' + e, 'error');
+      }
+    },
+
+    async toggleNoise(enabled) {
+      try {
+        const r = await fetch('/api/settings/noise-suppression', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({enabled: enabled}),
+        });
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        const data = await r.json();
+        this.settings.noise.suppression_enabled = data.enabled;
+        this.flash('노이즈 억제 ' + (data.enabled ? '켜짐' : '꺼짐'));
+      } catch (e) {
+        this.flash('저장 실패: ' + e, 'error');
+      }
+    },
+
+    async saveVad() {
+      this.savingVad = true;
+      try {
+        const r = await fetch('/api/settings/vad', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({threshold: this.settings.vad.threshold}),
+        });
+        if (!r.ok) {
+          const err = await r.json().catch(() => ({detail: r.statusText}));
+          throw new Error(err.detail || ('HTTP ' + r.status));
+        }
+        this.flash('VAD threshold 저장됨');
+      } catch (e) {
+        this.flash('저장 실패: ' + e.message, 'error');
+      } finally {
+        this.savingVad = false;
+      }
+    },
+
+    flash(msg, kind = 'ok') {
+      this.toast = { show: true, msg, kind };
+      setTimeout(() => { this.toast.show = false; }, 2500);
+    },
+  };
+}
+</script>
+</body>
+</html>

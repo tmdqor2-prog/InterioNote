@@ -1,0 +1,906 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>InterioNote</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script defer src="https://unpkg.com/alpinejs@3.14.1/dist/cdn.min.js"></script>
+  <style>
+    body { font-family: 'Segoe UI', 'Malgun Gothic', system-ui, sans-serif; }
+    [x-cloak] { display: none !important; }
+  </style>
+</head>
+<body class="bg-gray-50 text-gray-900">
+
+<div x-data="homePage()" x-init="init()" class="min-h-screen">
+
+  <!-- 헤더 -->
+  <header class="bg-white border-b border-gray-200 sticky top-0 z-10">
+    <div class="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <span class="text-2xl">🏠</span>
+        <h1 class="text-xl font-bold">InterioNote</h1>
+        <span class="px-2 py-0.5 rounded-full bg-green-100 text-green-700 text-xs font-medium cursor-pointer"
+              @click="showWelcome = true"
+              title="앱 정보 / 변경 이력 보기">
+          ● 실행 중 v<span x-text="appVersion"></span>
+        </span>
+      </div>
+      <div class="flex items-center gap-2">
+        <a href="/settings" class="text-sm text-gray-500 hover:text-gray-900 px-3 py-1.5 rounded hover:bg-gray-100">
+          ⚙️ 설정
+        </a>
+        <button @click="reload()" class="text-sm text-gray-500 hover:text-gray-900 px-3 py-1.5 rounded hover:bg-gray-100">
+          🔄 새로고침
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <main class="max-w-6xl mx-auto px-6 py-8">
+
+    <!-- Phase 2 테스트 진입 (상담/고객 연결 없이 파이프라인만 검증) -->
+    <section class="mb-4">
+      <a href="/live"
+        class="block bg-amber-50 hover:bg-amber-100 border border-amber-300 rounded-xl p-4 transition">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-3">
+            <span class="text-2xl">🧪</span>
+            <div>
+              <div class="font-semibold text-amber-900">Phase 2 테스트 — 실시간 녹음·전사</div>
+              <div class="text-xs text-amber-800">
+                VAD + Whisper 파이프라인 검증 (고객 선택 없이 단독 테스트)
+              </div>
+            </div>
+          </div>
+          <span class="text-amber-700">→</span>
+        </div>
+      </a>
+    </section>
+
+    <!-- 첫 화면: 신규 vs 기존 선택 -->
+    <section class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
+      <!-- 새 고객 -->
+      <button @click="startNewClient()"
+        class="group bg-white hover:bg-blue-50 border-2 border-dashed border-gray-300 hover:border-blue-400 rounded-2xl p-8 text-left transition">
+        <div class="flex items-center gap-3 mb-3">
+          <span class="text-3xl">✨</span>
+          <h2 class="text-xl font-bold">새 고객 상담 시작</h2>
+        </div>
+        <p class="text-sm text-gray-600 leading-relaxed">
+          처음 상담하는 고객입니다. 폴더와 하위 폴더
+          (<code class="text-xs bg-gray-100 px-1 rounded">ETC / 렌더이미지_요청 / 제안서 관련 / 현장 이미지 / 휴지통 / 상담기록</code>)를
+          자동 생성합니다.
+        </p>
+        <div class="mt-3 text-xs text-blue-600 font-medium opacity-0 group-hover:opacity-100 transition">
+          → 클릭해서 시작
+        </div>
+      </button>
+
+      <!-- 기존 고객 -->
+      <button @click="openPicker()"
+        class="group bg-white hover:bg-green-50 border-2 border-dashed border-gray-300 hover:border-green-400 rounded-2xl p-8 text-left transition">
+        <div class="flex items-center gap-3 mb-3">
+          <span class="text-3xl">📂</span>
+          <h2 class="text-xl font-bold">기존 고객 상담 이어가기</h2>
+        </div>
+        <p class="text-sm text-gray-600 leading-relaxed">
+          이미 폴더가 있는 고객입니다. 해당 고객의
+          <code class="text-xs bg-gray-100 px-1 rounded">상담기록</code> 폴더 안에 새 상담 건이 추가됩니다.
+          총 <strong x-text="clients.length"></strong>명 등록됨.
+        </p>
+        <div class="mt-3 text-xs text-green-700 font-medium opacity-0 group-hover:opacity-100 transition">
+          → 목록에서 선택
+        </div>
+      </button>
+    </section>
+
+    <!-- 고객 검색 + 최근 고객 -->
+    <section class="bg-white rounded-xl shadow-sm border border-gray-200">
+      <div class="px-5 py-4 border-b border-gray-100 flex items-center justify-between gap-4">
+        <h3 class="font-semibold flex items-center gap-2">
+          <span>👥</span> 고객 목록
+          <span class="text-xs text-gray-400 font-normal">(<span x-text="filteredClients.length"></span> / <span x-text="clients.length"></span>명)</span>
+        </h3>
+        <input type="text" x-model="search" placeholder="이름·주소·단지명으로 검색..."
+          class="px-3 py-1.5 border border-gray-300 rounded-md text-sm w-72 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+      </div>
+
+      <!-- 로딩 -->
+      <div x-show="loading" x-cloak class="p-10 text-center text-gray-400">
+        <div class="inline-block w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+        <div class="text-xs mt-2">고객 폴더 스캔 중...</div>
+      </div>
+
+      <!-- 루트 경로 없음 -->
+      <div x-show="!loading && !rootExists" x-cloak class="p-10 text-center">
+        <div class="text-red-600 font-medium mb-2">⚠ 고객 폴더 루트를 찾을 수 없습니다</div>
+        <div class="text-xs font-mono bg-gray-100 inline-block px-2 py-1 rounded break-all" x-text="root"></div>
+        <div class="text-xs text-gray-500 mt-3">
+          경로가 바뀌었거나 폴더가 이동되지 않은 상태일 수 있습니다.
+          <code class="bg-gray-100 px-1 rounded">app\config.py</code>의
+          <code class="bg-gray-100 px-1 rounded">CLIENT_ROOT</code>를 확인하세요.
+        </div>
+      </div>
+
+      <!-- 비어있음 -->
+      <div x-show="!loading && rootExists && clients.length === 0" x-cloak class="p-10 text-center text-gray-400 text-sm">
+        아직 등록된 고객 폴더가 없습니다. 위 "새 고객 상담 시작"으로 첫 고객을 만들어 보세요.
+      </div>
+
+      <!-- 목록 -->
+      <ul x-show="!loading && filteredClients.length > 0" x-cloak class="divide-y divide-gray-100">
+        <template x-for="c in filteredClients" :key="c.folder_name">
+          <li class="px-5 py-3 hover:bg-gray-50 flex items-center gap-3 cursor-pointer"
+              @click="selectClient(c)">
+            <div class="w-10 h-10 rounded-full bg-gradient-to-br from-blue-100 to-blue-200 flex items-center justify-center text-blue-700 font-bold shrink-0"
+              x-text="(c.name || '?').slice(0, 1)"></div>
+            <div class="flex-1 min-w-0">
+              <div class="font-medium truncate">
+                <span x-text="c.name"></span>
+                <span class="text-gray-400 text-xs ml-2" x-text="c.descriptor ? '(' + c.descriptor + ')' : ''"></span>
+              </div>
+              <div class="text-xs text-gray-500 truncate" x-text="c.folder_name"></div>
+            </div>
+            <div class="text-right shrink-0">
+              <div class="text-xs text-gray-400">상담</div>
+              <div class="text-sm font-mono tabular-nums" x-text="c.num_meetings + '건'"></div>
+            </div>
+          </li>
+        </template>
+      </ul>
+    </section>
+
+    <!-- 하단 경로 정보 -->
+    <section class="mt-6 bg-gray-100 rounded-lg p-4 text-xs text-gray-500">
+      <div class="font-medium text-gray-700 mb-1">📁 저장 루트</div>
+      <div class="font-mono break-all" x-text="root"></div>
+    </section>
+  </main>
+
+  <!-- ========================================
+       시작 환영·패치 노트 모달 (Phase 6B)
+       ======================================== -->
+  <div x-show="showWelcome" x-cloak
+       class="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4"
+       @keydown.escape.window="closeWelcome(false)">
+    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto"
+         @click.outside="closeWelcome(false)">
+
+      <!-- Header -->
+      <div class="px-6 py-4 border-b border-gray-100 flex items-center justify-between sticky top-0 bg-white z-10">
+        <div>
+          <h2 class="text-xl font-bold flex items-center gap-2">
+            <span>🏠</span> InterioNote
+            <span class="text-sm text-gray-500 font-mono" x-text="'v' + appVersion"></span>
+          </h2>
+          <div class="text-xs text-gray-500 mt-0.5">인테리어 상담 녹음·전사·분석 (완전 로컬)</div>
+        </div>
+        <button @click="closeWelcome(false)" class="text-gray-400 hover:text-gray-700 text-2xl leading-none">×</button>
+      </div>
+
+      <!-- 사용 설명 -->
+      <div class="px-6 py-5">
+        <h3 class="text-sm font-semibold text-gray-700 mb-2 flex items-center gap-1">
+          📘 빠른 사용법
+        </h3>
+        <ul class="space-y-1.5 text-sm text-gray-700 leading-relaxed">
+          <li class="flex gap-2">
+            <span class="shrink-0">①</span>
+            <span><strong>신규 고객</strong>은 좌측의 <code class="bg-gray-100 px-1 rounded">✨ 새 고객 상담 시작</code> → 이름·평형 입력 → 자동 폴더 생성</span>
+          </li>
+          <li class="flex gap-2">
+            <span class="shrink-0">②</span>
+            <span><strong>기존 고객</strong>은 아래 목록에서 클릭 → 상담 종류(초도·디자인·견적) 선택 → 녹음 시작</span>
+          </li>
+          <li class="flex gap-2">
+            <span class="shrink-0">③</span>
+            <span>녹음 중 발화 카드가 1~3초 뒤 자동 생성. <kbd class="px-1 bg-gray-100 border border-gray-300 rounded">1</kbd>=나, <kbd class="px-1 bg-gray-100 border border-gray-300 rounded">2</kbd>=고객, <kbd class="px-1 bg-gray-100 border border-gray-300 rounded">0</kbd>=라벨 지우기</span>
+          </li>
+          <li class="flex gap-2">
+            <span class="shrink-0">④</span>
+            <span>종료 후 <code class="bg-gray-100 px-1 rounded">🎯 정확도 재처리</code> (medium) 로 인식률 향상, <code class="bg-gray-100 px-1 rounded">✨ AI 분석</code> 으로 요약 생성</span>
+          </li>
+          <li class="flex gap-2">
+            <span class="shrink-0">⑤</span>
+            <span>저장 위치·폴더 구조·모델 등은 우측 상단 <code class="bg-gray-100 px-1 rounded">⚙️ 설정</code> 에서 변경</span>
+          </li>
+        </ul>
+      </div>
+
+      <!-- 새 버전 알림 배너 (Phase 7B-3) -->
+      <div x-show="updateInfo && updateInfo.newer_available" x-cloak class="px-6 pt-3">
+        <div class="bg-amber-50 border border-amber-300 rounded-lg p-3 text-sm">
+          <div class="font-semibold text-amber-900 mb-1">
+            🔔 새 버전 발견 — v<span x-text="updateInfo.latest_version"></span>
+          </div>
+          <div class="text-xs text-amber-800 mb-2">
+            현재: v<span x-text="appVersion"></span> · 다운로드 후 설치하면 사용자 데이터는 그대로 유지됩니다.
+          </div>
+          <button @click="openReleasePageFromWelcome()"
+                  class="text-sm bg-amber-600 hover:bg-amber-700 text-white px-3 py-1.5 rounded">
+            📥 다운로드 페이지 열기
+          </button>
+        </div>
+      </div>
+
+      <!-- 최신 패치 노트 -->
+      <div class="px-6 pb-2">
+        <h3 class="text-sm font-semibold text-gray-700 mb-2 flex items-center gap-1">
+          🆕 이번 버전 주요 변경
+        </h3>
+        <template x-if="latestEntry">
+          <div class="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm">
+            <div class="flex items-center gap-2 mb-1.5">
+              <span class="font-mono text-blue-700 font-semibold" x-text="'v' + latestEntry.version"></span>
+              <span class="text-xs text-blue-600" x-text="latestEntry.date"></span>
+              <span class="text-xs text-gray-700 ml-1" x-text="'· ' + latestEntry.title"></span>
+            </div>
+            <ul class="space-y-1 text-sm text-blue-900">
+              <template x-for="item in latestEntry.items" :key="item">
+                <li class="flex gap-2">
+                  <span class="shrink-0 text-blue-500">·</span>
+                  <span x-text="item"></span>
+                </li>
+              </template>
+            </ul>
+          </div>
+        </template>
+      </div>
+
+      <!-- 이전 버전 (접기) -->
+      <div class="px-6 pb-2" x-show="olderEntries.length > 0" x-cloak>
+        <button @click="showOlder = !showOlder"
+                class="text-xs text-gray-600 hover:text-gray-900 mt-1 flex items-center gap-1">
+          <span x-text="showOlder ? '▼' : '▶'"></span>
+          <span>이전 버전 변경 이력 (<span x-text="olderEntries.length"></span>개)</span>
+        </button>
+        <div x-show="showOlder" x-cloak class="mt-2 space-y-2">
+          <template x-for="entry in olderEntries" :key="entry.version">
+            <div class="bg-gray-50 border border-gray-200 rounded-lg p-3 text-xs">
+              <div class="flex items-center gap-2 mb-1">
+                <span class="font-mono text-gray-700 font-semibold" x-text="'v' + entry.version"></span>
+                <span class="text-gray-500" x-text="entry.date"></span>
+                <span class="text-gray-700" x-text="'· ' + entry.title"></span>
+              </div>
+              <ul class="space-y-0.5 text-gray-700">
+                <template x-for="item in entry.items" :key="item">
+                  <li class="flex gap-1.5">
+                    <span class="shrink-0 text-gray-400">·</span>
+                    <span x-text="item"></span>
+                  </li>
+                </template>
+              </ul>
+            </div>
+          </template>
+        </div>
+      </div>
+
+      <!-- Footer -->
+      <div class="px-6 py-4 border-t border-gray-100 flex justify-between items-center">
+        <button @click="closeWelcome(true)"
+                class="text-sm text-gray-500 hover:text-gray-900 underline">
+          이번 버전부터 다시 열지 않기
+        </button>
+        <button @click="closeWelcome(false)"
+                class="px-4 py-2 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded-md font-semibold">
+          시작하기
+        </button>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- ========================================
+       신규 고객 생성 모달
+       ======================================== -->
+  <div x-show="showNewClientModal" x-cloak
+       class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+       @keydown.escape.window="closeNewClientModal()">
+    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg p-6"
+         @click.outside="closeNewClientModal()">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="text-lg font-bold flex items-center gap-2">
+          <span>✨</span> 새 고객 등록
+        </h2>
+        <button @click="closeNewClientModal()" class="text-gray-400 hover:text-gray-700 text-xl leading-none">×</button>
+      </div>
+
+      <div class="space-y-4">
+        <!-- 이름 -->
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">
+            고객 이름 <span class="text-red-500">*</span>
+          </label>
+          <input type="text" x-model="newClient.name" @input="updatePreview()"
+                 placeholder="예: 김민수"
+                 class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                 autofocus />
+        </div>
+
+        <!-- 괄호 내용 -->
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">
+            아파트·단지·평형 <span class="text-gray-400 text-xs">(선택, 괄호 안에 들어갑니다)</span>
+          </label>
+          <input type="text" x-model="newClient.descriptor" @input="updatePreview()"
+                 placeholder="예: 잠실 리센츠_33평a타입"
+                 class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          <div class="text-xs text-gray-500 mt-1">비워 두면 이름만으로 폴더를 만듭니다.</div>
+        </div>
+
+        <!-- 폴더명 미리보기 -->
+        <div class="bg-blue-50 border border-blue-200 rounded-lg p-3">
+          <div class="text-xs text-blue-700 font-medium mb-1">📁 생성될 폴더명</div>
+          <div x-show="preview.valid" class="font-mono text-sm text-blue-900 break-all" x-text="preview.folderName"></div>
+          <div x-show="!preview.valid" class="text-sm text-red-600" x-text="preview.reason || '이름을 입력해 주세요.'"></div>
+          <div x-show="preview.valid && preview.exists" class="text-xs text-red-600 font-medium mt-1">
+            ⚠ 같은 이름의 폴더가 이미 존재합니다.
+          </div>
+        </div>
+
+        <!-- 생성될 서브폴더 안내 -->
+        <div class="text-xs text-gray-500 leading-relaxed">
+          <div class="font-medium text-gray-700 mb-1">함께 생성되는 서브폴더 6개</div>
+          <code class="bg-gray-100 px-1 rounded">ETC</code> ·
+          <code class="bg-gray-100 px-1 rounded">렌더이미지_요청</code> ·
+          <code class="bg-gray-100 px-1 rounded">제안서 관련</code> ·
+          <code class="bg-gray-100 px-1 rounded">현장 이미지</code> ·
+          <code class="bg-gray-100 px-1 rounded">휴지통</code> ·
+          <code class="bg-gray-100 px-1 rounded">상담기록</code>
+        </div>
+
+        <!-- 에러 -->
+        <div x-show="newClientError" x-cloak
+             class="bg-red-50 border border-red-300 rounded-lg p-3 text-sm text-red-700 break-all"
+             x-text="newClientError"></div>
+      </div>
+
+      <div class="mt-6 flex justify-end gap-2">
+        <button @click="closeNewClientModal()"
+                class="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-md">
+          취소
+        </button>
+        <button @click="submitNewClient()"
+                :disabled="!preview.valid || preview.exists || creating"
+                class="px-4 py-2 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed">
+          <span x-show="!creating">고객 등록</span>
+          <span x-show="creating" x-cloak>등록 중...</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========================================
+       고객 클릭 시 액션 선택 모달 (Phase 6C)
+       ======================================== -->
+  <div x-show="showActionModal" x-cloak
+       class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+       @keydown.escape.window="closeActionModal()">
+    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg p-6"
+         @click.outside="closeActionModal()">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="text-lg font-bold flex items-center gap-2">
+          <span>🗂</span> 작업 선택
+        </h2>
+        <button @click="closeActionModal()" class="text-gray-400 hover:text-gray-700 text-xl leading-none">×</button>
+      </div>
+
+      <div class="mb-4 bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm">
+        <div class="text-xs text-gray-500 mb-0.5">고객</div>
+        <div class="font-semibold" x-text="actionCtx.clientDisplay"></div>
+        <div class="text-xs text-gray-500 font-mono break-all" x-text="actionCtx.folderName"></div>
+      </div>
+
+      <div class="grid grid-cols-1 gap-3">
+        <button @click="actionStartNew()"
+                class="text-left px-5 py-4 rounded-lg border-2 border-gray-200 hover:border-blue-400 hover:bg-blue-50 transition">
+          <div class="flex items-start gap-3">
+            <span class="text-2xl">✨</span>
+            <div class="flex-1">
+              <div class="font-semibold">신규 녹음 시작</div>
+              <div class="text-xs text-gray-500 mt-0.5">
+                초도상담 / 디자인미팅 / 견적미팅 중 선택해서 새 녹음을 시작합니다.
+              </div>
+            </div>
+          </div>
+        </button>
+
+        <button @click="actionViewPast()"
+                :disabled="loadingPast"
+                class="text-left px-5 py-4 rounded-lg border-2 border-gray-200 hover:border-emerald-400 hover:bg-emerald-50 transition disabled:opacity-60">
+          <div class="flex items-start gap-3">
+            <span class="text-2xl">📂</span>
+            <div class="flex-1">
+              <div class="font-semibold flex items-center gap-2">
+                <span>기존 상담 내용 보기</span>
+                <span x-show="actionCtx.numMeetings > 0"
+                      class="text-[11px] px-1.5 py-0.5 bg-emerald-100 text-emerald-800 rounded"
+                      x-text="actionCtx.numMeetings + '건 저장됨'"></span>
+              </div>
+              <div class="text-xs text-gray-500 mt-0.5">
+                전사 카드, 음성 파일, AI 요약 등 이전 녹음 결과를 다시 봅니다.
+              </div>
+            </div>
+          </div>
+        </button>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- ========================================
+       과거 상담 목록 모달 (Phase 6C)
+       ======================================== -->
+  <div x-show="showPastModal" x-cloak
+       class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+       @keydown.escape.window="closePastModal()">
+    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col"
+         @click.outside="closePastModal()">
+      <div class="px-6 py-4 border-b border-gray-100 flex items-center justify-between sticky top-0 bg-white z-10">
+        <h2 class="text-lg font-bold flex items-center gap-2">
+          <span>📂</span> 기존 상담 목록
+          <span class="text-sm text-gray-500 font-normal" x-text="actionCtx.clientDisplay"></span>
+        </h2>
+        <button @click="closePastModal()" class="text-gray-400 hover:text-gray-700 text-xl leading-none">×</button>
+      </div>
+
+      <div class="overflow-y-auto flex-1">
+        <div x-show="loadingPast" x-cloak class="p-8 text-center text-gray-400 text-sm">
+          <div class="inline-block w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+          <div class="mt-2">불러오는 중...</div>
+        </div>
+
+        <div x-show="!loadingPast && pastMeetings.length === 0" x-cloak
+             class="p-10 text-center text-gray-400 text-sm">
+          저장된 상담이 없습니다. <br>
+          위 메뉴에서 <strong>신규 녹음 시작</strong> 으로 첫 상담을 진행하세요.
+        </div>
+
+        <ul x-show="!loadingPast && pastMeetings.length > 0" x-cloak class="divide-y divide-gray-100">
+          <template x-for="m in pastMeetings" :key="m.id">
+            <li @click="openPastMeeting(m.id)"
+                class="px-5 py-4 hover:bg-emerald-50 cursor-pointer flex items-start gap-3">
+              <div class="shrink-0 w-12 h-12 rounded-lg bg-gradient-to-br from-emerald-100 to-emerald-200 flex items-center justify-center text-emerald-700 text-xl">
+                <span x-show="m.meeting_type === '초도상담'">☕</span>
+                <span x-show="m.meeting_type === '디자인미팅'">📐</span>
+                <span x-show="m.meeting_type === '견적미팅'">💰</span>
+              </div>
+              <div class="flex-1 min-w-0">
+                <div class="flex items-center gap-2 flex-wrap">
+                  <span class="font-semibold" x-text="m.meeting_type"></span>
+                  <span class="text-xs text-gray-500" x-text="(m.started_at || '').replace('T', ' ')"></span>
+                  <span x-show="m.has_analysis"
+                        class="text-[10px] px-1.5 py-0.5 bg-purple-100 text-purple-800 rounded">AI ✓</span>
+                  <span x-show="!m.audio_exists"
+                        class="text-[10px] px-1.5 py-0.5 bg-amber-100 text-amber-800 rounded">파일 없음</span>
+                </div>
+                <div class="text-xs text-gray-600 mt-1 flex flex-wrap gap-3">
+                  <span>⏱ <span x-text="formatDuration(m.duration_sec)"></span></span>
+                  <span>💬 <span x-text="m.segments_count + '건 카드'"></span></span>
+                </div>
+                <div class="text-[11px] text-gray-400 font-mono mt-1 truncate" x-text="m.meeting_folder"></div>
+              </div>
+              <div class="shrink-0 self-center text-emerald-600">→</div>
+            </li>
+          </template>
+        </ul>
+      </div>
+
+      <div class="px-6 py-3 border-t border-gray-100 text-xs text-gray-500 leading-relaxed">
+        클릭하면 해당 상담의 카드·음성·AI 요약이 다시 열립니다. 화자 라벨도 그대로 편집 가능합니다.
+      </div>
+    </div>
+  </div>
+
+
+  <!-- ========================================
+       상담 종류 선택 모달 (Phase 3B)
+       ======================================== -->
+  <div x-show="showMeetingModal" x-cloak
+       class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+       @keydown.escape.window="closeMeetingModal()">
+    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg p-6"
+         @click.outside="closeMeetingModal()">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="text-lg font-bold flex items-center gap-2">
+          <span>🎯</span> 상담 종류 선택
+        </h2>
+        <button @click="closeMeetingModal()" class="text-gray-400 hover:text-gray-700 text-xl leading-none">×</button>
+      </div>
+
+      <div class="mb-4 bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm">
+        <div class="text-xs text-gray-500 mb-0.5">고객</div>
+        <div class="font-semibold" x-text="meetingCtx.clientDisplay"></div>
+        <div class="text-xs text-gray-500 font-mono break-all" x-text="meetingCtx.folderName"></div>
+      </div>
+
+      <div class="space-y-2">
+        <template x-for="mt in meetingTypes" :key="mt.key">
+          <button @click="pickMeetingType(mt.key)"
+                  :disabled="creatingMeeting"
+                  class="w-full text-left px-4 py-3 rounded-lg border-2 transition hover:border-blue-400 hover:bg-blue-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                  :class="meetingCtx.picked === mt.key ? 'border-blue-500 bg-blue-50' : 'border-gray-200'">
+            <div class="flex items-center justify-between">
+              <div>
+                <div class="font-semibold" x-text="mt.label"></div>
+                <div class="text-xs text-gray-500" x-text="mt.hint"></div>
+              </div>
+              <span class="text-2xl" x-text="mt.icon"></span>
+            </div>
+          </button>
+        </template>
+      </div>
+
+      <div x-show="meetingError" x-cloak
+           class="mt-4 bg-red-50 border border-red-300 rounded-lg p-3 text-sm text-red-700 break-all"
+           x-text="meetingError"></div>
+
+      <div x-show="creatingMeeting" x-cloak class="mt-4 text-center text-sm text-gray-500">
+        <span class="inline-block w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin align-middle"></span>
+        <span class="ml-2">상담 준비 중...</span>
+      </div>
+
+      <div class="mt-5 text-xs text-gray-500 leading-relaxed border-t border-gray-100 pt-3">
+        선택하면 녹음 화면으로 이동합니다. 종료 후 자동으로
+        <code class="bg-gray-100 px-1 rounded">상담기록\{날짜}_{상담종류}</code> 폴더에 저장됩니다.
+      </div>
+    </div>
+  </div>
+
+</div>
+
+
+<script>
+function homePage() {
+  return {
+    loading: true,
+    clients: [],
+    root: '',
+    rootExists: false,
+    search: '',
+
+    // --- 신규 고객 모달 ---
+    showNewClientModal: false,
+    newClient: { name: '', descriptor: '' },
+    preview: { valid: false, folderName: '', exists: false, reason: '' },
+    creating: false,
+    newClientError: '',
+    _previewTimer: null,
+
+    // --- 시작 환영 모달 (Phase 6B) + 업데이트 알림 (Phase 7B-3) ---
+    showWelcome: false,
+    showOlder: false,
+    appVersion: '?',
+    changelog: [],
+    updateInfo: null,
+
+    // --- 액션 선택 + 과거 상담 목록 모달 (Phase 6C) ---
+    showActionModal: false,
+    showPastModal: false,
+    actionCtx: { folderName: '', clientDisplay: '', numMeetings: 0, client: null },
+    pastMeetings: [],
+    loadingPast: false,
+
+    // --- 상담 종류 선택 모달 (Phase 3B) ---
+    showMeetingModal: false,
+    meetingCtx: {
+      folderName: '',
+      clientDisplay: '',
+      picked: null,
+    },
+    meetingTypes: [
+      { key: '초도상담',    label: '초도상담',    hint: '매장에서 처음 만나는 고객 응대',      icon: '☕' },
+      { key: '디자인미팅', label: '디자인미팅', hint: '실측 후 디자인 안 설명',                icon: '📐' },
+      { key: '견적미팅',    label: '견적미팅',    hint: '최종 견적 제시 및 계약 협의',          icon: '💰' },
+    ],
+    creatingMeeting: false,
+    meetingError: '',
+
+    async init() {
+      // 환영 모달 체크 — 고객 목록보다 먼저
+      this.checkWelcome();
+      await this.reload();
+    },
+
+    // ===== 환영 / 패치 노트 + 업데이트 자동 체크 =====
+    async checkWelcome() {
+      try {
+        const r = await fetch('/api/app/info');
+        if (!r.ok) return;
+        const data = await r.json();
+        this.appVersion = data.version || '?';
+        this.changelog = Array.isArray(data.changelog) ? data.changelog : [];
+
+        const STORAGE_KEY = 'interionote.dismissed_until_version';
+        const dismissed = localStorage.getItem(STORAGE_KEY);
+        if (dismissed !== this.appVersion) {
+          this.showWelcome = true;
+        }
+      } catch (e) {
+        // 정보 가져오기 실패해도 앱 동작은 계속
+      }
+      // 업데이트 자동 체크 (네트워크 실패해도 조용히 무시)
+      try {
+        const r2 = await fetch('/api/app/check-update');
+        if (r2.ok) {
+          const data = await r2.json();
+          if (data && data.ok && data.newer_available) {
+            this.updateInfo = data;
+            // 새 버전이면 dismiss 와 무관하게 팝업 표시
+            this.showWelcome = true;
+          }
+        }
+      } catch (e) { /* ignore */ }
+    },
+
+    openReleasePageFromWelcome() {
+      const url = this.updateInfo && this.updateInfo.release_url;
+      if (!url) return;
+      if (window.pywebview && window.pywebview.api && window.pywebview.api.open_external_url) {
+        window.pywebview.api.open_external_url(url);
+      } else {
+        window.open(url, '_blank');
+      }
+    },
+
+    closeWelcome(dontShowAgain) {
+      if (dontShowAgain) {
+        try {
+          localStorage.setItem('interionote.dismissed_until_version', this.appVersion);
+        } catch (e) {}
+      }
+      this.showWelcome = false;
+    },
+
+    get latestEntry() {
+      return this.changelog.length > 0 ? this.changelog[0] : null;
+    },
+    get olderEntries() {
+      return this.changelog.slice(1);
+    },
+
+    async reload() {
+      this.loading = true;
+      try {
+        const r = await fetch('/api/clients');
+        const data = await r.json();
+        this.clients = data.clients || [];
+        this.root = data.root || '';
+        this.rootExists = !!data.root_exists;
+      } catch (e) {
+        console.error(e);
+      } finally {
+        this.loading = false;
+      }
+    },
+
+    get filteredClients() {
+      if (!this.search.trim()) return this.clients;
+      const q = this.search.trim().toLowerCase();
+      return this.clients.filter(c =>
+        (c.name || '').toLowerCase().includes(q)
+        || (c.descriptor || '').toLowerCase().includes(q)
+        || (c.folder_name || '').toLowerCase().includes(q)
+      );
+    },
+
+    openPicker() {
+      alert('아래 고객 목록에서 선택하시면 됩니다.');
+    },
+
+    // --- 신규 고객 생성 플로우 ---
+    startNewClient() {
+      this.newClient = { name: '', descriptor: '' };
+      this.preview = { valid: false, folderName: '', exists: false, reason: '' };
+      this.newClientError = '';
+      this.creating = false;
+      this.showNewClientModal = true;
+    },
+
+    closeNewClientModal() {
+      if (this.creating) return;
+      this.showNewClientModal = false;
+    },
+
+    updatePreview() {
+      // debounce 200ms
+      if (this._previewTimer) clearTimeout(this._previewTimer);
+      this._previewTimer = setTimeout(() => this._fetchPreview(), 200);
+    },
+
+    async _fetchPreview() {
+      if (!this.newClient.name || !this.newClient.name.trim()) {
+        this.preview = { valid: false, folderName: '', exists: false, reason: '이름을 입력해 주세요.' };
+        return;
+      }
+      try {
+        const r = await fetch('/api/clients/preview-folder-name', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({
+            name: this.newClient.name,
+            descriptor: this.newClient.descriptor || '',
+          }),
+        });
+        const data = await r.json();
+        this.preview = {
+          valid: !!data.valid,
+          folderName: data.folder_name || '',
+          exists: !!data.exists,
+          reason: data.reason || '',
+        };
+      } catch (e) {
+        this.preview = { valid: false, folderName: '', exists: false, reason: '미리보기 오류: ' + e.message };
+      }
+    },
+
+    async submitNewClient() {
+      if (!this.preview.valid || this.preview.exists || this.creating) return;
+      this.creating = true;
+      this.newClientError = '';
+      try {
+        const r = await fetch('/api/clients/new', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({
+            name: this.newClient.name.trim(),
+            descriptor: (this.newClient.descriptor || '').trim(),
+          }),
+        });
+        if (!r.ok) {
+          const err = await r.json().catch(() => ({detail: r.statusText}));
+          throw new Error(err.detail || ('HTTP ' + r.status));
+        }
+        const data = await r.json();
+        this.showNewClientModal = false;
+        await this.reload();
+        // 등록된 고객으로 바로 상담 종류 선택 모달 열기
+        this.openMeetingModal({
+          folder_name: data.folder_name,
+          name: data.name,
+          descriptor: data.descriptor,
+        });
+      } catch (e) {
+        this.newClientError = e.message || String(e);
+      } finally {
+        this.creating = false;
+      }
+    },
+
+    // 기존 고객 선택: 누락 폴더 자동 보정 → 액션 선택 모달 (Phase 6C)
+    async selectClient(c) {
+      try {
+        const r = await fetch('/api/clients/ensure-template', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({folder_name: c.folder_name}),
+        });
+        if (!r.ok) {
+          const err = await r.json().catch(() => ({detail: r.statusText}));
+          throw new Error(err.detail || ('HTTP ' + r.status));
+        }
+      } catch (e) {
+        alert('폴더 확인 실패: ' + (e.message || e));
+        return;
+      }
+      this.openActionModal(c);
+    },
+
+    // ===== 액션 선택 모달 (신규 녹음 / 기존 보기) =====
+    openActionModal(client) {
+      let display = client.name || client.folder_name || '';
+      if (client.descriptor) display += ' (' + client.descriptor + ')';
+      this.actionCtx = {
+        folderName: client.folder_name,
+        clientDisplay: display,
+        numMeetings: client.num_meetings || 0,
+        client: client,
+      };
+      this.loadingPast = false;
+      this.pastMeetings = [];
+      this.showActionModal = true;
+    },
+
+    closeActionModal() {
+      this.showActionModal = false;
+    },
+
+    actionStartNew() {
+      this.showActionModal = false;
+      this.openMeetingModal(this.actionCtx.client);
+    },
+
+    async actionViewPast() {
+      this.loadingPast = true;
+      try {
+        const url = '/api/meetings?folder=' + encodeURIComponent(this.actionCtx.folderName);
+        const r = await fetch(url);
+        if (!r.ok) {
+          const err = await r.json().catch(() => ({detail: r.statusText}));
+          throw new Error(err.detail || ('HTTP ' + r.status));
+        }
+        const data = await r.json();
+        this.pastMeetings = data.meetings || [];
+      } catch (e) {
+        alert('과거 상담 목록을 불러오지 못했습니다: ' + (e.message || e));
+        this.pastMeetings = [];
+      } finally {
+        this.loadingPast = false;
+      }
+      this.showActionModal = false;
+      this.showPastModal = true;
+    },
+
+    closePastModal() {
+      this.showPastModal = false;
+    },
+
+    openPastMeeting(meetingId) {
+      this.showPastModal = false;
+      window.location.href = '/live?m=' + encodeURIComponent(meetingId);
+    },
+
+    formatDuration(seconds) {
+      const s = Math.max(0, Math.round(seconds || 0));
+      if (s < 60) return s + '초';
+      const m = Math.floor(s / 60);
+      const rem = s % 60;
+      if (m < 60) return rem === 0 ? m + '분' : m + '분 ' + rem + '초';
+      const h = Math.floor(m / 60);
+      const remm = m % 60;
+      return h + '시간 ' + remm + '분';
+    },
+
+    // --- 상담 종류 선택 모달 ---
+    openMeetingModal(client) {
+      let display = client.name || client.folder_name;
+      if (client.descriptor) display += ' (' + client.descriptor + ')';
+      this.meetingCtx = {
+        folderName: client.folder_name,
+        clientDisplay: display,
+        picked: null,
+      };
+      this.meetingError = '';
+      this.creatingMeeting = false;
+      this.showMeetingModal = true;
+    },
+
+    closeMeetingModal() {
+      if (this.creatingMeeting) return;
+      this.showMeetingModal = false;
+    },
+
+    async pickMeetingType(mt) {
+      if (this.creatingMeeting) return;
+      this.meetingCtx.picked = mt;
+      this.meetingError = '';
+      this.creatingMeeting = true;
+      try {
+        const r = await fetch('/api/meetings/new', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({
+            folder_name: this.meetingCtx.folderName,
+            meeting_type: mt,
+          }),
+        });
+        if (!r.ok) {
+          const err = await r.json().catch(() => ({detail: r.statusText}));
+          throw new Error(err.detail || ('HTTP ' + r.status));
+        }
+        const data = await r.json();
+        // /live 로 이동 — meeting_id 를 쿼리로 전달
+        window.location.href = '/live?m=' + encodeURIComponent(data.meeting_id);
+      } catch (e) {
+        this.meetingError = e.message || String(e);
+        this.creatingMeeting = false;
+      }
+    },
+  };
+}
+</script>
+
+</body>
+</html>

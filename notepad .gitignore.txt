@@ -1,0 +1,17 @@
+# Python venv (다른 PC 에서 dev.bat 이 자동 생성)
+venv/
+__pycache__/
+*.pyc
+
+# PyInstaller 빌드 산출물 (다른 PC 에서 build.bat 으로 재생성)
+build/
+dist/
+
+# Inno Setup 산출물 (재생성 가능)
+Output/
+
+# 사용자 데이터 (DB) — %APPDATA% 로 옮겨졌지만 마이그레이션 전 백업이 있으면 push 안 함
+data/
+
+# 모델 캐시 — %LOCALAPPDATA% 로 옮겨졌지만 만일을 위해
+models_cache/

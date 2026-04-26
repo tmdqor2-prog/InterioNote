@@ -1,0 +1,45 @@
+# ========================================
+# InterioNote v2 - Phase 1 + 2
+# Python 3.11 / 3.12, CPU-only
+# ========================================
+
+# --- Web server + native window ---
+fastapi==0.115.5
+uvicorn[standard]==0.32.1
+jinja2==3.1.4
+pywebview==5.3.2
+pydantic==2.9.2
+python-multipart==0.0.17
+
+# --- Audio I/O ---
+sounddevice==0.5.1
+soundfile==0.12.1
+numpy==1.26.4
+
+# --- VAD (발화 분리) ---
+# silero-vad 5.x 는 torch(CPU)를 transitive 로 끌어옴 (~200MB)
+silero-vad==5.1.2
+onnxruntime==1.19.2
+torch==2.4.1
+
+# --- STT (한국어 전사) ---
+# faster-whisper 는 ctranslate2 사용 (torch 비의존)
+faster-whisper==1.0.3
+
+# --- MP3 인코딩 (Phase 3C) ---
+# 순수 pip wheel, 외부 ffmpeg 불필요
+lameenc==1.7.0
+
+# --- AI 분석 (Phase 4 - Ollama) ---
+httpx==0.27.2
+
+# --- 노이즈 억제 (Phase 5B - silero-denoise via torch.hub) ---
+# torch / torchaudio 이미 설치됨 (silero-vad 의존성)
+# silero-denoise 모델 자체는 torch.hub 가 GitHub 에서 받음 (~52MB)
+omegaconf==2.3.0
+
+# --- Phase 7B-3: 자동 업데이트 확인 (httpx 재사용) ---
+# (이미 위에 있음)
+
+# --- Phase 7B-1: 배포 빌드 (개발 환경에만 필요, .exe 자체에는 불필요) ---
+pyinstaller==6.11.1
