@@ -5,32 +5,262 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>설정 · InterioNote</title>
   <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    // v2.5.0 다크모드: html.dark class 기반. localStorage 보고 setup
+    tailwind.config = { darkMode: 'class' };
+    (function() {
+      try {
+        var t = localStorage.getItem('interionote.theme') || 'system';
+        var prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+        var dark = (t === 'dark') || (t === 'system' && prefersDark);
+        if (dark) document.documentElement.classList.add('dark');
+      } catch(e) {}
+    })();
+  </script>
+  <!-- v3.0.0 Phase 2: 인증 (fetch 오버라이드 + 즉시 토큰 확인) -->
+  <script>
+  (function(){
+    var _origFetch = window.fetch.bind(window);
+    window.fetch = async function(resource, opts){
+      opts = opts ? Object.assign({}, opts) : {};
+      if (typeof resource === 'string' && resource.startsWith('/api/')) {
+        var tok = localStorage.getItem('interionote.token');
+        if (tok) opts.headers = Object.assign({'Authorization': 'Bearer ' + tok}, opts.headers || {});
+      }
+      var r = await _origFetch(resource, opts);
+      if (r.status === 401 && window.location.pathname !== '/login') {
+        localStorage.removeItem('interionote.token');
+        localStorage.removeItem('interionote.user');
+        window.location.replace('/login');
+      }
+      return r;
+    };
+    if (window.location.pathname !== '/login') {
+      var tok = localStorage.getItem('interionote.token');
+      if (!tok) { window.location.replace('/login'); return; }
+      try {
+        var p = JSON.parse(atob(tok.split('.')[1].replace(/-/g,'+').replace(/_/g,'/')));
+        if (p.exp && Date.now()/1000 > p.exp) {
+          localStorage.removeItem('interionote.token');
+          localStorage.removeItem('interionote.user');
+          window.location.replace('/login');
+        }
+      } catch(e) {}
+    }
+    window.getAuthUser = function(){
+      try { return JSON.parse(localStorage.getItem('interionote.user') || 'null'); } catch(e){ return null; }
+    };
+    window.logoutUser = function(){
+      localStorage.removeItem('interionote.token');
+      localStorage.removeItem('interionote.user');
+      window.location.replace('/login');
+    };
+  })();
+  </script>
   <script defer src="https://unpkg.com/alpinejs@3.14.1/dist/cdn.min.js"></script>
   <style>
     body { font-family: 'Segoe UI', 'Malgun Gothic', system-ui, sans-serif; }
     [x-cloak] { display: none !important; }
+    /* v2.5.4 다크모드 보강 — 액센트 박스를 더 어둡게 + 텍스트 contrast 강화 */
+    html.dark code { color: #f3f4f6; background-color: #374151; }
+    html.dark kbd { color: #f3f4f6; background-color: #374151; border-color: #4b5563; }
+    html.dark input, html.dark select, html.dark textarea { color-scheme: dark; }
+    html.dark input::placeholder, html.dark textarea::placeholder { color: #9ca3af; }
+    html.dark ::-webkit-scrollbar { background: #1f2937; }
+    html.dark ::-webkit-scrollbar-thumb { background: #4b5563; border-radius: 4px; }
+    html.dark ::-webkit-scrollbar-thumb:hover { background: #6b7280; }
+
+    /* 다크모드에서 너무 밝게 보이던 50/100 액센트 배경들 — 강력 override */
+    html.dark .bg-amber-50  { background-color: rgba(120, 53, 15, 0.25) !important; }
+    html.dark .bg-amber-100 { background-color: rgba(120, 53, 15, 0.40) !important; }
+    html.dark .bg-blue-50   { background-color: rgba(30, 58, 138, 0.25) !important; }
+    html.dark .bg-blue-100  { background-color: rgba(30, 58, 138, 0.40) !important; }
+    html.dark .bg-indigo-50 { background-color: rgba(49, 46, 129, 0.25) !important; }
+    html.dark .bg-emerald-50  { background-color: rgba(6, 78, 59, 0.30) !important; }
+    html.dark .bg-emerald-100 { background-color: rgba(6, 78, 59, 0.45) !important; }
+    html.dark .bg-green-50  { background-color: rgba(20, 83, 45, 0.30) !important; }
+    html.dark .bg-green-100 { background-color: rgba(20, 83, 45, 0.45) !important; }
+    html.dark .bg-red-50    { background-color: rgba(127, 29, 29, 0.25) !important; }
+    html.dark .bg-red-100   { background-color: rgba(127, 29, 29, 0.40) !important; }
+    html.dark .bg-purple-50 { background-color: rgba(76, 29, 149, 0.25) !important; }
+    html.dark .bg-purple-100 { background-color: rgba(76, 29, 149, 0.40) !important; }
+    html.dark .bg-yellow-50 { background-color: rgba(113, 63, 18, 0.25) !important; }
+
+    /* 액센트 박스 안의 텍스트 contrast 강화 — 어두운 배경 위 밝은 텍스트 */
+    html.dark .text-amber-900,
+    html.dark .text-amber-800,
+    html.dark .text-amber-700 { color: #fde68a !important; }   /* amber-200 */
+    html.dark .text-blue-900,
+    html.dark .text-blue-800 { color: #bfdbfe !important; }    /* blue-200 */
+    html.dark .text-blue-700 { color: #93c5fd !important; }    /* blue-300 */
+    html.dark .text-emerald-900,
+    html.dark .text-emerald-800 { color: #a7f3d0 !important; } /* emerald-200 */
+    html.dark .text-emerald-700 { color: #6ee7b7 !important; } /* emerald-300 */
+    html.dark .text-green-900,
+    html.dark .text-green-800 { color: #bbf7d0 !important; }   /* green-200 */
+    html.dark .text-green-700 { color: #86efac !important; }   /* green-300 */
+    html.dark .text-red-900,
+    html.dark .text-red-800 { color: #fecaca !important; }     /* red-200 */
+    html.dark .text-red-700 { color: #fca5a5 !important; }     /* red-300 */
+    html.dark .text-purple-900,
+    html.dark .text-purple-800 { color: #e9d5ff !important; }  /* purple-200 */
+    html.dark .text-indigo-900 { color: #c7d2fe !important; }
+
+    /* 일반 회색 텍스트 — 어두운 카드 위에서 더 밝게 */
+    html.dark .text-gray-900 { color: #f3f4f6 !important; }
+    html.dark .text-gray-800 { color: #e5e7eb !important; }
+    html.dark .text-gray-700 { color: #d1d5db !important; }
+    html.dark .text-gray-600 { color: #9ca3af !important; }
+    html.dark .text-gray-500 { color: #9ca3af !important; }
+    html.dark .text-gray-400 { color: #6b7280 !important; }
+
+    /* 액센트 border 도 더 옅게 (눈부심 방지) */
+    html.dark .border-amber-200,
+    html.dark .border-amber-300 { border-color: rgba(180, 83, 9, 0.50) !important; }
+    html.dark .border-blue-200,
+    html.dark .border-blue-300 { border-color: rgba(29, 78, 216, 0.50) !important; }
+    html.dark .border-emerald-200,
+    html.dark .border-emerald-300 { border-color: rgba(5, 150, 105, 0.50) !important; }
+    html.dark .border-red-200,
+    html.dark .border-red-300 { border-color: rgba(220, 38, 38, 0.50) !important; }
+    html.dark .border-green-200,
+    html.dark .border-green-300 { border-color: rgba(22, 163, 74, 0.50) !important; }
   </style>
 </head>
-<body class="bg-gray-50 text-gray-900">
+<body class="bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100">
 
 <div x-data="settingsPage()" x-init="init()" class="min-h-screen">
 
-  <header class="bg-white border-b border-gray-200 sticky top-0 z-10">
-    <div class="max-w-3xl mx-auto px-6 py-3 flex items-center justify-between">
-      <div class="flex items-center gap-3">
-        <a href="/" class="text-gray-400 hover:text-gray-700">← 홈</a>
-        <h1 class="text-lg font-bold flex items-center gap-2">⚙️ 설정</h1>
+  <header class="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 sticky top-0 z-10">
+    <div class="max-w-3xl mx-auto px-6 py-3 flex items-center justify-between gap-3">
+      <div class="flex items-center gap-3 min-w-0">
+        <a href="/" class="text-gray-400 hover:text-gray-700 dark:text-gray-200 shrink-0">← 홈</a>
+        <h1 class="text-lg font-bold flex items-center gap-2 dark:text-gray-100">⚙️ 설정</h1>
       </div>
-      <div class="text-xs text-gray-500" x-show="loadedSize">
-        현재 메모리에 로드된 모델: <code class="bg-gray-100 px-1 rounded" x-text="loadedSize"></code>
+      <div class="flex items-center gap-3 shrink-0">
+        <div class="text-xs text-gray-500 dark:text-gray-400 hidden sm:block" x-show="loadedSize">
+          모델: <code class="bg-gray-100 dark:bg-gray-700 dark:text-gray-100 px-1 rounded" x-text="loadedSize"></code>
+        </div>
+        <!-- v2.5.6 O2: Ollama 가용성 미니 배지 (클릭 시 일반 탭으로 이동) -->
+        <button @click="currentTab = 'general'; if (ollamaState === 'checking') checkOllamaHealth();"
+                class="flex items-center gap-1 px-1.5 py-0.5 border border-gray-200 dark:border-gray-700 rounded hover:bg-gray-50 dark:hover:bg-gray-700 transition"
+                :title="ollamaState === 'ok' ? 'AI 분석 준비 완료 (Ollama 정상) — 클릭해서 자세히'
+                      : ollamaState === 'no_model' ? 'Ollama 모델 없음 — 클릭해서 안내 보기'
+                      : ollamaState === 'no_ollama' ? 'Ollama 미설치 — 클릭해서 설치 안내 보기'
+                      : '확인 중...'">
+          <span class="w-2 h-2 rounded-full"
+                :class="{
+                  'bg-emerald-500': ollamaState === 'ok',
+                  'bg-amber-500': ollamaState === 'no_model',
+                  'bg-red-500': ollamaState === 'no_ollama',
+                  'bg-gray-300 animate-pulse': ollamaState === 'checking'
+                }"></span>
+          <span class="text-[11px] text-gray-600 dark:text-gray-300">AI</span>
+        </button>
       </div>
     </div>
   </header>
 
   <main class="max-w-3xl mx-auto px-6 py-6 space-y-6">
 
+    <!-- v2.5.0: 탭 네비게이션 -->
+    <nav class="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 p-1 flex flex-wrap gap-1 sticky top-14 z-10">
+      <template x-for="t in filteredTabs" :key="t.key">
+        <button @click="currentTab = t.key"
+                :class="currentTab === t.key
+                  ? 'bg-blue-600 text-white'
+                  : 'text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700'"
+                class="px-3 py-1.5 rounded-lg text-sm font-medium transition flex items-center gap-1 relative">
+          <span x-text="t.icon"></span>
+          <span x-text="t.label"></span>
+          <!-- v3.3.0 Phase 5: 승인 대기 배지 (사용자 관리 탭) -->
+          <span x-show="t.key === 'users' && pendingUsers.length > 0" x-cloak
+                class="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white text-[9px] font-bold
+                       rounded-full flex items-center justify-center leading-none"
+                x-text="pendingUsers.length"></span>
+        </button>
+      </template>
+    </nav>
+
+    <!-- v3.0.0 Phase 2: 내 계정 (일반 탭 최상단, 모든 사용자에게 표시) -->
+    <section x-show="currentTab === 'general'" x-cloak
+             class="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5">
+      <h2 class="font-semibold flex items-center gap-2 mb-3 dark:text-gray-100">
+        <span>👤</span> 내 계정
+      </h2>
+      <div class="flex items-center justify-between flex-wrap gap-3">
+        <div class="flex items-center gap-3">
+          <div class="w-9 h-9 rounded-full bg-blue-100 dark:bg-blue-900/40 flex items-center justify-center text-base font-bold text-blue-700 dark:text-blue-300"
+               x-text="authUser ? (authUser.display_name || '?')[0] : '?'"></div>
+          <div>
+            <div class="text-sm font-medium dark:text-gray-100" x-text="authUser ? authUser.display_name : ''"></div>
+            <div class="flex items-center gap-1.5 text-[11px] text-gray-500 dark:text-gray-400">
+              <code x-text="authUser ? authUser.username : ''"></code>
+              <span class="px-1.5 py-0.5 rounded-full"
+                    :class="authUser && authUser.role === 'master'
+                      ? 'bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300'
+                      : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400'"
+                    x-text="authUser && authUser.role === 'master' ? '마스터' : '일반'"></span>
+            </div>
+          </div>
+        </div>
+        <button @click="window.logoutUser()"
+                class="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-red-200 dark:border-red-700
+                       text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition">
+          🚪 로그아웃
+        </button>
+      </div>
+      <!-- 비밀번호 변경 (간단 토글, 모든 사용자용) -->
+      <div class="mt-4">
+        <button @click="showPwdSection = !showPwdSection"
+                class="text-xs text-blue-600 dark:text-blue-400 hover:underline">
+          🔑 비밀번호 변경
+        </button>
+        <div x-show="showPwdSection" x-cloak class="mt-3 space-y-2 max-w-xs">
+          <input type="password" x-model="pwdForm.current" placeholder="현재 비밀번호"
+                 class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg
+                        bg-white dark:bg-gray-700 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          <input type="password" x-model="pwdForm.next" placeholder="새 비밀번호 (4자 이상)"
+                 class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg
+                        bg-white dark:bg-gray-700 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          <input type="password" x-model="pwdForm.confirm" placeholder="새 비밀번호 확인"
+                 class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg
+                        bg-white dark:bg-gray-700 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          <div x-show="pwdError" x-cloak class="text-xs text-red-600 dark:text-red-400" x-text="pwdError"></div>
+          <div x-show="pwdSuccess" x-cloak class="text-xs text-emerald-600 dark:text-emerald-400" x-text="pwdSuccess"></div>
+          <button @click="changeMyPassword()" :disabled="savingPwd"
+                  class="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded-lg disabled:bg-gray-300">
+            <span x-show="!savingPwd">변경</span>
+            <span x-show="savingPwd" x-cloak>변경 중...</span>
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- v2.5.0: 다크모드 토글 (일반 탭 최상단) -->
+    <section x-show="currentTab === 'general'" x-cloak class="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5">
+      <h2 class="font-semibold flex items-center gap-2 mb-3 dark:text-gray-100">
+        <span>🌗</span> 화면 테마
+      </h2>
+      <div class="grid grid-cols-3 gap-2">
+        <template x-for="opt in [{k:'light',i:'☀️',l:'밝은 테마'},{k:'dark',i:'🌙',l:'어두운 테마'},{k:'system',i:'🖥',l:'시스템 따라'}]" :key="opt.k">
+          <button @click="setTheme(opt.k)"
+                  :class="theme === opt.k
+                    ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/30 dark:border-blue-400'
+                    : 'border-gray-200 dark:border-gray-600 hover:border-blue-300'"
+                  class="flex flex-col items-center p-3 rounded border transition">
+            <span class="text-2xl" x-text="opt.i"></span>
+            <span class="text-xs mt-1 dark:text-gray-200" x-text="opt.l"></span>
+          </button>
+        </template>
+      </div>
+      <div class="text-[11px] text-gray-500 dark:text-gray-400 mt-2">
+        매장 늦은 시간 / 야간 작업 시 어두운 테마가 눈에 편합니다. 설정은 즉시 적용됩니다.
+      </div>
+    </section>
+
     <!-- ============ 업데이트 + 앱 제거 (Phase 7B-3) ============ -->
-    <section class="bg-white rounded-xl border border-gray-200 p-5">
+    <section x-show="currentTab === 'general'" x-cloak class="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 p-5">
       <h2 class="font-semibold flex items-center gap-2 mb-3">
         <span>📦</span> 앱 업데이트
       </h2>
@@ -50,41 +280,64 @@
 
       <!-- 결과: 최신 -->
       <div x-show="updateResult && updateResult.is_latest" x-cloak
-           class="bg-emerald-50 border border-emerald-300 rounded-lg p-3 text-sm text-emerald-900">
+           class="bg-emerald-50 border border-emerald-300 dark:border-emerald-700 rounded-lg p-3 text-sm text-emerald-900 dark:text-emerald-200">
         ✅ <strong>가장 최신 버전입니다</strong>
-        <span class="text-xs text-emerald-700">
+        <span class="text-xs text-emerald-700 dark:text-emerald-300">
           (GitHub 최신: v<span x-text="updateResult.latest_version"></span>)
         </span>
       </div>
 
       <!-- 결과: 새 버전 발견 -->
       <div x-show="updateResult && updateResult.newer_available" x-cloak
-           class="bg-amber-50 border border-amber-300 rounded-lg p-3 text-sm">
-        <div class="font-semibold text-amber-900 mb-1">
+           class="bg-amber-50 border border-amber-300 dark:border-amber-700 rounded-lg p-3 text-sm">
+        <div class="font-semibold text-amber-900 dark:text-amber-200 mb-1">
           🔔 새 버전 발견 — v<span x-text="updateResult.latest_version"></span>
         </div>
-        <div class="text-xs text-amber-800 mb-2">
+        <div class="text-xs text-amber-800 dark:text-amber-300 mb-2">
           출시일: <span x-text="(updateResult.published_at || '').slice(0, 10)"></span>
         </div>
         <div x-show="updateResult.release_body" x-cloak
-             class="text-xs bg-white border border-amber-200 rounded p-2 mb-2 max-h-40 overflow-y-auto whitespace-pre-wrap"
+             class="text-xs bg-white dark:bg-gray-800 border border-amber-200 dark:border-amber-700/50 rounded p-2 mb-2 max-h-40 overflow-y-auto whitespace-pre-wrap"
              x-text="updateResult.release_body"></div>
-        <button @click="openReleasePage()"
-                class="text-sm bg-amber-600 hover:bg-amber-700 text-white px-3 py-1.5 rounded">
-          📥 다운로드 페이지 열기
-        </button>
+
+        <!-- Phase 8D: 빠른 업데이트 우선 + 전체 재설치 fallback -->
+        <div class="flex flex-wrap gap-2">
+          <template x-if="updateResult.quick_update_supported">
+            <button @click="runQuickUpdate()"
+                    :disabled="quickUpdateState === 'running'"
+                    class="text-sm bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded disabled:bg-gray-300">
+              <span x-show="quickUpdateState !== 'running'">
+                ✨ 빠른 업데이트
+                <span x-show="updateResult.quick_update && updateResult.quick_update.size"
+                      class="text-[10px] opacity-80">
+                  (~<span x-text="Math.round((updateResult.quick_update.size || 0)/1024)"></span>KB)
+                </span>
+              </span>
+              <span x-show="quickUpdateState === 'running'" x-cloak>⏳ 적용 중...</span>
+            </button>
+          </template>
+          <button @click="openReleasePage()"
+                  class="text-sm bg-amber-600 hover:bg-amber-700 text-white px-3 py-1.5 rounded">
+            📦 전체 재설치 (인스톨러)
+          </button>
+        </div>
+        <div x-show="updateResult.quick_update_supported" class="text-[11px] text-emerald-700 dark:text-emerald-300 mt-1.5">
+          💡 빠른 업데이트는 작은 변경만 다운로드해서 자동 적용됩니다 (앱 자동 재시작).
+        </div>
+        <div x-show="quickUpdateError" x-cloak class="mt-2 text-xs text-red-700 bg-red-50 border border-red-200 rounded p-2"
+             x-text="quickUpdateError"></div>
       </div>
 
       <!-- 결과: 릴리스 없음 -->
       <div x-show="updateResult && updateResult.has_release === false" x-cloak
-           class="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm text-blue-900">
+           class="bg-blue-50 border border-blue-200 dark:border-blue-700/50 rounded-lg p-3 text-sm text-blue-900 dark:text-blue-200">
         ℹ <strong>아직 출시된 릴리스가 없습니다.</strong>
         <div class="text-xs mt-1">GitHub 저장소 자체는 정상 접속됩니다.</div>
       </div>
 
       <!-- 결과: 실패 -->
       <div x-show="updateResult && updateResult.ok === false" x-cloak
-           class="bg-red-50 border border-red-300 rounded-lg p-3 text-sm text-red-900">
+           class="bg-red-50 border border-red-300 dark:border-red-700 rounded-lg p-3 text-sm text-red-900 dark:text-red-200">
         ⚠ <strong>업데이트 확인 실패</strong>
         <div class="text-xs mt-1 font-mono whitespace-pre-wrap break-all"
              x-text="updateResult.reason"></div>
@@ -97,8 +350,253 @@
     </section>
 
 
+    <!-- ============ v2.5.6 O2: AI 분석 가용성 (Ollama) ============ -->
+    <section x-show="currentTab === 'general'" x-cloak class="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5">
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="font-semibold flex items-center gap-2 dark:text-gray-100">
+          <span>🤖</span> AI 분석 가용성 (Ollama)
+        </h2>
+        <button @click="recheckOllama()"
+                :disabled="ollamaState === 'checking'"
+                class="text-xs px-2.5 py-1 border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-700 dark:text-gray-200 disabled:opacity-50">
+          🔄 다시 확인
+        </button>
+      </div>
+
+      <!-- 상태별 안내 -->
+      <template x-if="ollamaState === 'checking'">
+        <div class="bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-3 text-sm text-gray-600 dark:text-gray-300">
+          ⏳ Ollama 가용성 확인 중...
+        </div>
+      </template>
+
+      <template x-if="ollamaState === 'ok'">
+        <div class="bg-emerald-50 dark:bg-emerald-900/30 border border-emerald-300 dark:border-emerald-700 rounded-lg p-3 text-sm text-emerald-900 dark:text-emerald-200">
+          ✅ <strong>AI 분석 준비 완료</strong> — Ollama + qwen2.5:3b 정상 동작
+          <div class="text-xs text-emerald-800 dark:text-emerald-300 mt-1">
+            상담 종료 후 [✨ AI 분석] 버튼으로 자동 요약·체크리스트 생성 가능합니다.
+          </div>
+        </div>
+      </template>
+
+      <template x-if="ollamaState === 'no_ollama'">
+        <div class="bg-amber-50 dark:bg-amber-900/30 border border-amber-300 dark:border-amber-700 rounded-lg p-3 text-sm">
+          <div class="font-semibold text-amber-900 dark:text-amber-200 mb-1">⚠ Ollama 가 설치되어 있지 않습니다</div>
+          <div class="text-xs text-amber-800 dark:text-amber-300 leading-relaxed">
+            ① 아래 버튼 → 설치 파일 다운로드 → 더블클릭 설치<br>
+            ② cmd 창에서 <code class="bg-amber-100 dark:bg-amber-800/50 px-1 rounded">ollama pull qwen2.5:3b</code> 실행 (~1.9GB)<br>
+            ③ InterioNote 다시 시작 또는 위의 [🔄 다시 확인]
+          </div>
+          <div class="text-[11px] text-gray-500 dark:text-gray-400 mt-2">
+            💡 녹음·전사·재처리·메모는 Ollama 없이도 정상 동작합니다. AI 요약·체크리스트만 사용 불가.
+          </div>
+          <div class="flex gap-2 mt-2 flex-wrap">
+            <button @click="openOllamaDownload()"
+                    class="text-xs bg-amber-600 hover:bg-amber-700 text-white px-3 py-1.5 rounded">
+              📥 Ollama 다운로드 페이지
+            </button>
+          </div>
+        </div>
+      </template>
+
+      <template x-if="ollamaState === 'no_model'">
+        <div class="bg-amber-50 dark:bg-amber-900/30 border border-amber-300 dark:border-amber-700 rounded-lg p-3 text-sm">
+          <div class="font-semibold text-amber-900 dark:text-amber-200 mb-1">📦 Ollama 는 설치돼 있지만 AI 모델이 없습니다</div>
+          <div class="text-xs text-amber-800 dark:text-amber-300 leading-relaxed">
+            cmd 창 (시작 메뉴 → cmd) 에서 <code class="bg-amber-100 dark:bg-amber-800/50 px-1 rounded">ollama pull qwen2.5:3b</code> 한 번 실행 (~1.9GB).<br>
+            완료 후 위의 [🔄 다시 확인].
+          </div>
+          <div x-show="ollamaInfo && ollamaInfo.installed_models && ollamaInfo.installed_models.length > 0" x-cloak
+               class="text-[11px] text-gray-500 dark:text-gray-400 mt-2">
+            현재 설치된 모델: <code x-text="(ollamaInfo && ollamaInfo.installed_models || []).join(', ')"></code>
+          </div>
+        </div>
+      </template>
+
+      <div class="mt-3 text-[11px] text-gray-400 dark:text-gray-500">
+        Ollama 는 별도 무료 프로그램입니다. InterioNote 가 외부 서버 호출 없이 AI 분석을 돌리기 위해 사용합니다.
+      </div>
+    </section>
+
+
+    <!-- ============ v2.7.0 U: 수동 전체 백업 ============ -->
+    <section x-show="currentTab === 'general'" x-cloak class="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5 relative">
+      <!-- v2.7.1: 우측 상단 ? 도움말 (호버 → 복원 방법 툴팁) -->
+      <div class="absolute top-3 right-3 group">
+        <button class="w-6 h-6 rounded-full border border-gray-300 dark:border-gray-600 text-gray-500 dark:text-gray-300 text-xs font-bold hover:bg-gray-100 dark:hover:bg-gray-700 cursor-help"
+                aria-label="백업 복원 방법">
+          ?
+        </button>
+        <div class="hidden group-hover:block absolute right-0 mt-1 z-50 w-[360px] bg-gray-900 dark:bg-gray-700 text-white text-xs rounded-lg shadow-xl p-3 leading-relaxed">
+          <div class="font-bold text-sm mb-2 flex items-center gap-1">
+            <span>📦</span> 백업 복원 방법
+          </div>
+          <ol class="list-decimal list-inside space-y-1.5">
+            <li>
+              <strong class="text-amber-300">InterioNote 종료</strong> — 작업표시줄에서 우클릭 → 닫기 (또는 작업관리자에서 InterioNote.exe 종료)
+            </li>
+            <li>
+              <strong class="text-amber-300">백업 zip 압축 풀기</strong> — 백업 파일 우클릭 → 압축 풀기
+            </li>
+            <li>
+              <strong class="text-amber-300">DB 파일 덮어쓰기</strong> — 압축 푼 폴더의 <code class="bg-gray-800 px-1 rounded">data/interionote.db</code> 를 <code class="bg-gray-800 px-1 rounded text-[10px] break-all">%APPDATA%\InterioNote\data\</code> 폴더에 덮어쓰기 (옛 DB 자동 백업 권장)
+            </li>
+            <li>
+              <strong class="text-amber-300">앱 재시작</strong> — 모든 고객·상담·태그·OJT 매핑이 복원됨
+            </li>
+          </ol>
+          <div class="mt-2 text-[10px] text-gray-300 border-t border-gray-700 pt-2">
+            ⚠ 고객 폴더 (07_고객정보, 녹음 mp3·요약 md 등) 는 본 백업에 포함 안 됨 — OneDrive·외장 으로 별도 보관 필요.
+          </div>
+          <div class="mt-1 text-[10px] text-gray-400">
+            zip 안에 README.txt 도 함께 동봉됩니다.
+          </div>
+        </div>
+      </div>
+
+      <h2 class="font-semibold flex items-center gap-2 mb-3 dark:text-gray-100">
+        <span>📦</span> 데이터 백업
+      </h2>
+      <div class="text-xs text-gray-600 dark:text-gray-300 mb-3 leading-relaxed">
+        DB·설정·OJT 매핑·진단 로그를 zip 파일로 묶어서 안전한 곳에 보관하세요.
+        <br>고객 폴더 (녹음·분석 결과) 는 OneDrive 동기화 가정으로 백업에 포함하지 않습니다 — 외장 / 다른 PC 백업 권장.
+      </div>
+      <div class="flex gap-2 flex-wrap items-center">
+        <button @click="runFullBackup()" :disabled="backupRunning"
+                class="text-sm bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded disabled:bg-gray-300">
+          <span x-show="!backupRunning">📦 지금 백업 만들기</span>
+          <span x-show="backupRunning" x-cloak>⏳ 백업 중...</span>
+        </button>
+        <button @click="openBackupFolder()"
+                class="text-sm border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700 dark:text-gray-200 px-3 py-1.5 rounded">
+          📁 백업 폴더 열기
+        </button>
+      </div>
+      <div x-show="backupResult" x-cloak class="mt-3 bg-emerald-50 dark:bg-emerald-900/30 border border-emerald-300 dark:border-emerald-700 rounded-lg p-3 text-sm text-emerald-900 dark:text-emerald-200">
+        ✅ 백업 완료 — <strong x-text="backupResult && (Math.round((backupResult.size_bytes || 0)/1024) + 'KB')"></strong>,
+        <span x-text="backupResult && backupResult.files_count + '개 파일'"></span>
+        <div class="text-[11px] mt-1 font-mono break-all opacity-80" x-text="backupResult && backupResult.path"></div>
+      </div>
+      <div x-show="backupError" x-cloak class="mt-3 bg-red-50 border border-red-300 dark:border-red-700 rounded-lg p-3 text-sm text-red-900 dark:text-red-200" x-text="backupError"></div>
+    </section>
+
+    <!-- ============ ⑰ v3.5.0: 엑셀 내보내기 ============ -->
+    <section x-show="currentTab === 'general'" x-cloak class="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5">
+      <h2 class="font-semibold flex items-center gap-2 mb-1 dark:text-gray-100">
+        <span>📊</span> 엑셀 내보내기
+      </h2>
+      <p class="text-xs text-gray-500 dark:text-gray-400 mb-4">고객 목록과 상담 목록을 엑셀 파일로 내보냅니다.</p>
+      <div class="flex gap-2 flex-wrap">
+        <a href="/api/export/clients.xlsx"
+           class="inline-flex items-center gap-1.5 text-sm bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded transition"
+           download>
+          📥 고객 목록 (.xlsx)
+        </a>
+        <a href="/api/export/meetings.xlsx"
+           class="inline-flex items-center gap-1.5 text-sm bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded transition"
+           download>
+          📥 상담 목록 (.xlsx)
+        </a>
+      </div>
+      <div class="text-xs text-gray-400 dark:text-gray-500 mt-2">계약금액·입금액 포함 · 오늘 날짜로 파일명 자동 생성</div>
+    </section>
+
+    <!-- ============ ⑳ v3.5.0: 다중 PC 동기화 가이드 ============ -->
+    <section x-show="currentTab === 'general'" x-cloak class="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5">
+      <div class="flex items-center justify-between cursor-pointer select-none" @click="showSyncGuide = !showSyncGuide">
+        <h2 class="font-semibold flex items-center gap-2 dark:text-gray-100">
+          <span>🔗</span> 다중 PC 동기화 가이드
+          <span class="text-xs text-gray-400 font-normal">— OneDrive 로 노트북↔데스크탑 실시간 공유</span>
+        </h2>
+        <span class="text-gray-400 text-sm" x-text="showSyncGuide ? '▲' : '▼'"></span>
+      </div>
+      <div x-show="showSyncGuide" x-cloak class="mt-4 space-y-4">
+        <div class="bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-700 rounded-lg p-3 text-sm text-blue-900 dark:text-blue-200">
+          💡 InterioNote 의 고객 폴더 루트를 OneDrive 안에 두면, 두 PC 가 자동으로 같은 데이터를 공유합니다.<br>
+          <span class="text-xs opacity-75">DB 와 설정은 각 PC 에 독립 보관되어 녹음·전사는 각자 실행되고, 저장 파일(MP3, 요약 등)만 공유됩니다.</span>
+        </div>
+        <ol class="space-y-3 text-sm">
+          <li class="flex gap-3">
+            <span class="w-6 h-6 rounded-full bg-blue-600 text-white text-xs font-bold flex-shrink-0 flex items-center justify-center">1</span>
+            <div>
+              <div class="font-medium dark:text-gray-100">OneDrive 폴더 위치 확인</div>
+              <div class="text-gray-600 dark:text-gray-400 text-xs mt-0.5">파일 탐색기에서 OneDrive 폴더를 찾습니다. 보통 <code class="bg-gray-100 dark:bg-gray-700 px-1 rounded">C:\Users\{이름}\OneDrive</code> 입니다.</div>
+            </div>
+          </li>
+          <li class="flex gap-3">
+            <span class="w-6 h-6 rounded-full bg-blue-600 text-white text-xs font-bold flex-shrink-0 flex items-center justify-center">2</span>
+            <div>
+              <div class="font-medium dark:text-gray-100">고객 폴더 이동 (처음 설정 시만)</div>
+              <div class="text-gray-600 dark:text-gray-400 text-xs mt-0.5">기존 고객 폴더 전체를 OneDrive 안으로 옮깁니다. 예: <code class="bg-gray-100 dark:bg-gray-700 px-1 rounded">OneDrive\고객정보</code> 로 이동.</div>
+              <div class="text-red-600 dark:text-red-400 text-xs mt-0.5">⚠ 이동 중 앱을 실행하지 마세요. 이동 후에 아래 3단계 진행.</div>
+            </div>
+          </li>
+          <li class="flex gap-3">
+            <span class="w-6 h-6 rounded-full bg-blue-600 text-white text-xs font-bold flex-shrink-0 flex items-center justify-center">3</span>
+            <div>
+              <div class="font-medium dark:text-gray-100">이 화면에서 고객 폴더 루트 변경</div>
+              <div class="text-gray-600 dark:text-gray-400 text-xs mt-0.5">위 탭 → <strong>사용자 폴더</strong> 탭 → <strong>📂 찾아보기</strong> 로 OneDrive 안의 고객 폴더를 선택 후 저장합니다.</div>
+            </div>
+          </li>
+          <li class="flex gap-3">
+            <span class="w-6 h-6 rounded-full bg-blue-600 text-white text-xs font-bold flex-shrink-0 flex items-center justify-center">4</span>
+            <div>
+              <div class="font-medium dark:text-gray-100">다른 PC 에도 InterioNote 설치</div>
+              <div class="text-gray-600 dark:text-gray-400 text-xs mt-0.5">다른 PC 에서 InterioNote 를 설치하고, 위 3단계와 동일하게 같은 OneDrive 고객 폴더를 루트로 지정합니다.</div>
+            </div>
+          </li>
+          <li class="flex gap-3">
+            <span class="w-6 h-6 rounded-full bg-emerald-600 text-white text-xs font-bold flex-shrink-0 flex items-center justify-center">✓</span>
+            <div>
+              <div class="font-medium text-emerald-700 dark:text-emerald-400">완료 — 두 PC 가 같은 고객 데이터 공유</div>
+              <div class="text-gray-600 dark:text-gray-400 text-xs mt-0.5">이후 어느 PC 에서 녹음해도 MP3·요약·전사 파일이 OneDrive 를 통해 다른 PC 에서도 보입니다. 단, 홈 화면 고객 목록은 각 PC 가 폴더를 다시 스캔해야 최신으로 표시됩니다.</div>
+            </div>
+          </li>
+        </ol>
+        <div class="bg-amber-50 dark:bg-amber-900/30 border border-amber-200 dark:border-amber-700 rounded-lg p-3 text-xs text-amber-900 dark:text-amber-200">
+          ⚠ <strong>동시 녹음 주의</strong>: 두 PC 에서 같은 고객 폴더에 동시에 녹음하면 파일 이름이 겹칠 수 있습니다. 한 번에 한 PC 에서만 녹음하세요.
+        </div>
+      </div>
+    </section>
+
     <!-- ============ 앱 제거 안내 (Phase 7B-3) ============ -->
-    <section class="bg-white rounded-xl border border-gray-200 p-5">
+    <!-- ============ v3.0.0: 담당자 정보 (카톡 문구 서명용) ============ -->
+    <section x-show="currentTab === 'general'" x-cloak class="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5">
+      <h2 class="font-semibold flex items-center gap-2 mb-1 dark:text-gray-100">
+        <span>👤</span> 담당자 정보
+      </h2>
+      <p class="text-xs text-gray-500 dark:text-gray-400 mb-4">카톡 안내 문구 자동 생성 시 서명으로 사용됩니다.</p>
+      <div class="space-y-3">
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div>
+            <label class="text-xs text-gray-600 dark:text-gray-400 block mb-1">담당자 이름 *</label>
+            <input type="text" x-model="designerName" placeholder="예: 한승민"
+                   class="w-full text-sm px-2 py-1.5 border border-gray-300 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 rounded focus:outline-none focus:border-blue-500"/>
+          </div>
+          <div>
+            <label class="text-xs text-gray-600 dark:text-gray-400 block mb-1">매장명</label>
+            <input type="text" x-model="designerStore" placeholder="예: Livart&문테리어"
+                   class="w-full text-sm px-2 py-1.5 border border-gray-300 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 rounded focus:outline-none focus:border-blue-500"/>
+          </div>
+          <div>
+            <label class="text-xs text-gray-600 dark:text-gray-400 block mb-1">연락처 (카톡 문구 포함)</label>
+            <input type="text" x-model="designerPhone" placeholder="예: 010-1234-5678"
+                   class="w-full text-sm px-2 py-1.5 border border-gray-300 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 rounded focus:outline-none focus:border-blue-500"/>
+          </div>
+        </div>
+        <div class="flex items-center gap-3">
+          <button @click="saveDesignerInfo()" :disabled="savingDesigner"
+                  class="text-sm bg-blue-600 hover:bg-blue-700 text-white px-4 py-1.5 rounded disabled:bg-gray-300 transition">
+            <span x-show="!savingDesigner">💾 저장</span>
+            <span x-show="savingDesigner" x-cloak>저장 중...</span>
+          </button>
+          <span x-show="designerSaved" x-cloak class="text-xs text-emerald-600 dark:text-emerald-400">✅ 저장됨</span>
+          <span x-show="designerSaveError" x-cloak class="text-xs text-red-600 dark:text-red-400" x-text="designerSaveError"></span>
+        </div>
+      </div>
+    </section>
+
+    <section x-show="currentTab === 'general'" x-cloak class="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 p-5">
       <h2 class="font-semibold flex items-center gap-2 mb-3">
         <span>🗑</span> 앱 제거
       </h2>
@@ -113,19 +611,19 @@
         </li>
       </ol>
 
-      <div class="mt-3 bg-amber-50 border border-amber-200 rounded p-3 text-xs text-amber-900 leading-relaxed">
+      <div class="mt-3 bg-amber-50 border border-amber-200 dark:border-amber-700/50 rounded p-3 text-xs text-amber-900 dark:text-amber-200 leading-relaxed">
         ⚠ 앱 제거 시 <strong>고객 폴더·녹음 파일·설정 DB 는 자동 삭제되지 않습니다</strong>.
         실수로 삭제 방지를 위함입니다. 완전히 정리하시려면 아래 버튼으로 폴더를 열어 직접 삭제하세요.
       </div>
 
       <div class="mt-3 grid grid-cols-2 gap-2">
         <button @click="openDataFolder('user_data_dir')"
-                class="text-sm px-3 py-2 border border-gray-300 hover:bg-gray-50 rounded">
+                class="text-sm px-3 py-2 border border-gray-300 dark:border-gray-600 hover:bg-gray-50 rounded">
           📁 사용자 데이터 폴더 열기
           <div class="text-[10px] text-gray-500 font-mono mt-0.5">%APPDATA%\InterioNote</div>
         </button>
         <button @click="openDataFolder('user_cache_dir')"
-                class="text-sm px-3 py-2 border border-gray-300 hover:bg-gray-50 rounded">
+                class="text-sm px-3 py-2 border border-gray-300 dark:border-gray-600 hover:bg-gray-50 rounded">
           📁 모델·임시 캐시 폴더 열기
           <div class="text-[10px] text-gray-500 font-mono mt-0.5">%LOCALAPPDATA%\InterioNote</div>
         </button>
@@ -134,7 +632,7 @@
 
 
     <!-- ============ 저장 위치 (Phase 6A) ============ -->
-    <section class="bg-white rounded-xl border border-gray-200 p-5">
+    <section x-show="currentTab === 'folders'" x-cloak class="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 p-5">
       <h2 class="font-semibold flex items-center gap-2 mb-3">
         <span>📁</span> 고객 폴더 저장 위치
       </h2>
@@ -145,10 +643,10 @@
       <div class="flex gap-2">
         <input type="text" x-model="settings.paths.client_root"
                placeholder="C:\Users\&lt;사용자&gt;\Documents\..."
-               class="flex-1 px-3 py-2 border border-gray-300 rounded-md text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500" />
+               class="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500" />
         <button type="button" @click="browseRootPath()"
                 :disabled="picking"
-                class="shrink-0 px-3 py-2 text-sm bg-gray-100 hover:bg-gray-200 border border-gray-300 rounded-md disabled:opacity-50 disabled:cursor-wait"
+                class="shrink-0 px-3 py-2 text-sm bg-gray-100 hover:bg-gray-200 border border-gray-300 dark:border-gray-600 rounded-md disabled:opacity-50 disabled:cursor-wait"
                 title="파일 탐색기에서 폴더 선택">
           <span x-show="!picking">📂 찾아보기</span>
           <span x-show="picking" x-cloak>여는 중…</span>
@@ -156,8 +654,8 @@
       </div>
       <div class="flex items-center justify-between mt-2 text-xs">
         <div>
-          <span x-show="settings.paths.client_root_exists" class="text-emerald-700">✓ 폴더 존재 확인됨</span>
-          <span x-show="!settings.paths.client_root_exists" class="text-amber-700">⚠ 해당 경로의 폴더가 존재하지 않습니다</span>
+          <span x-show="settings.paths.client_root_exists" class="text-emerald-700 dark:text-emerald-300">✓ 폴더 존재 확인됨</span>
+          <span x-show="!settings.paths.client_root_exists" class="text-amber-700 dark:text-amber-300">⚠ 해당 경로의 폴더가 존재하지 않습니다</span>
         </div>
         <div class="flex gap-2">
           <label class="flex items-center gap-1 text-gray-600">
@@ -179,14 +677,14 @@
 
 
     <!-- ============ 폴더 템플릿 (Phase 6A) ============ -->
-    <section class="bg-white rounded-xl border border-gray-200 p-5">
+    <section x-show="currentTab === 'folders'" x-cloak class="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 p-5">
       <div class="flex items-center justify-between mb-3">
         <h2 class="font-semibold flex items-center gap-2">
           <span>🗂</span> 신규 고객 자동 생성 서브폴더
         </h2>
         <div class="flex gap-2">
           <button @click="resetFolderTemplate()" :disabled="savingTemplate"
-                  class="text-xs text-gray-600 hover:text-gray-900 px-2 py-1 border border-gray-300 rounded">
+                  class="text-xs text-gray-600 hover:text-gray-900 dark:text-gray-100 px-2 py-1 border border-gray-300 dark:border-gray-600 rounded">
             기본값 복원
           </button>
           <button @click="saveFolderTemplate()" :disabled="savingTemplate"
@@ -200,7 +698,7 @@
       <div class="text-xs text-gray-500 mb-3 leading-relaxed">
         새 고객 폴더를 만들 때 자동으로 생성될 서브폴더 목록입니다.
         디자이너마다 정리 방식이 달라서 자유롭게 추가·삭제하세요.
-        <strong class="text-blue-700">'상담기록'</strong>은 시스템 필수라 자동 유지됩니다.
+        <strong class="text-blue-700 dark:text-blue-300">'상담기록'</strong>은 시스템 필수라 자동 유지됩니다.
       </div>
 
       <ul class="space-y-2">
@@ -210,13 +708,13 @@
             <input type="text"
                    x-model="settings.paths.folder_template[idx]"
                    :readonly="folder === settings.paths.required_folder"
-                   :class="folder === settings.paths.required_folder ? 'bg-blue-50 border-blue-200 text-blue-900' : 'border-gray-300'"
+                   :class="folder === settings.paths.required_folder ? 'bg-blue-50 border-blue-200 text-blue-900 dark:text-blue-200' : 'border-gray-300 dark:border-gray-600'"
                    class="flex-1 px-3 py-1.5 border rounded-md text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500" />
             <button type="button"
                     @click="removeFolder(idx)"
                     :disabled="folder === settings.paths.required_folder || settings.paths.folder_template.length <= 1"
-                    :class="folder === settings.paths.required_folder ? 'text-gray-300 cursor-not-allowed' : 'text-red-600 hover:bg-red-50'"
-                    class="w-9 h-9 rounded-md border border-gray-300 text-lg leading-none flex items-center justify-center"
+                    :class="folder === settings.paths.required_folder ? 'text-gray-300 cursor-not-allowed' : 'text-red-600 dark:text-red-400 hover:bg-red-50'"
+                    class="w-9 h-9 rounded-md border border-gray-300 dark:border-gray-600 text-lg leading-none flex items-center justify-center"
                     :title="folder === settings.paths.required_folder ? '시스템 필수 폴더 (제거 불가)' : '제거'">
               −
             </button>
@@ -225,7 +723,7 @@
       </ul>
 
       <button type="button" @click="addFolder()"
-              class="mt-3 w-full py-2 border-2 border-dashed border-gray-300 rounded-md text-sm text-gray-600 hover:border-blue-400 hover:text-blue-700 hover:bg-blue-50">
+              class="mt-3 w-full py-2 border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-md text-sm text-gray-600 hover:border-blue-400 hover:text-blue-700 dark:text-blue-300 hover:bg-blue-50">
         + 폴더 추가
       </button>
 
@@ -237,7 +735,7 @@
 
 
     <!-- ============ Whisper 모델 ============ -->
-    <section class="bg-white rounded-xl border border-gray-200 p-5">
+    <section x-show="currentTab === 'asr'" x-cloak class="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 p-5">
       <div class="flex items-center justify-between mb-3">
         <h2 class="font-semibold flex items-center gap-2">
           <span>🎙</span> 음성 인식 모델 (Whisper)
@@ -250,19 +748,38 @@
         </button>
       </div>
 
+      <!-- Phase 8C: 감지된 PC 사양 + 추천 안내 -->
+      <div class="mb-3 rounded-lg border border-blue-200 dark:border-blue-700/50 bg-blue-50/60 p-3 text-xs">
+        <div class="flex items-center gap-2 mb-1">
+          <span>🖥</span>
+          <span class="font-semibold text-blue-900 dark:text-blue-200">이 PC 사양 기반 추천</span>
+        </div>
+        <div class="text-gray-700 font-mono text-[11px]" x-text="formatSpecs()"></div>
+        <div class="mt-1 text-blue-900 dark:text-blue-200" x-show="systemSpecs && systemSpecs.recommendation" x-cloak>
+          실시간: <span class="font-semibold" x-text="systemSpecs && systemSpecs.recommendation && systemSpecs.recommendation.realtime"></span>
+          · 후처리: <span class="font-semibold" x-text="systemSpecs && systemSpecs.recommendation && systemSpecs.recommendation.post"></span>
+        </div>
+        <div class="mt-1 text-gray-600 leading-snug" x-show="systemSpecs && systemSpecs.recommendation && systemSpecs.recommendation.note" x-cloak
+             x-text="systemSpecs && systemSpecs.recommendation && systemSpecs.recommendation.note"></div>
+      </div>
+
       <div class="space-y-2">
         <template x-for="m in modelOptions" :key="m.size">
           <label class="flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition"
-                 :class="settings.whisper.model_size === m.size ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:border-blue-300'">
+                 :class="settings.whisper.model_size === m.size ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:border-blue-300 dark:border-blue-700'">
             <input type="radio" name="model" :value="m.size" x-model="settings.whisper.model_size" class="mt-1" />
             <div class="flex-1 min-w-0">
-              <div class="flex items-center gap-2">
+              <div class="flex items-center gap-2 flex-wrap">
                 <span class="font-semibold" x-text="m.label"></span>
                 <span class="text-xs text-gray-500" x-text="m.size"></span>
-                <span x-show="m.recommended"
-                      class="text-[10px] px-1.5 py-0.5 bg-blue-100 text-blue-800 rounded">권장</span>
+                <span x-show="m.recommended" x-cloak
+                      class="text-[10px] px-1.5 py-0.5 bg-blue-100 dark:bg-blue-800/40 text-blue-800 dark:text-blue-300 rounded"
+                      title="이 PC 사양에 맞는 실시간 녹음용 추천">⭐ 실시간 추천</span>
+                <span x-show="m.recommended_post" x-cloak
+                      class="text-[10px] px-1.5 py-0.5 bg-purple-100 dark:bg-purple-800/40 text-purple-800 rounded"
+                      title="이 PC 사양에 맞는 후처리(재처리) 추천">🎯 후처리 추천</span>
                 <span x-show="m.size === settings.whisper.model_size"
-                      class="text-[10px] px-1.5 py-0.5 bg-green-100 text-green-800 rounded">현재</span>
+                      class="text-[10px] px-1.5 py-0.5 bg-green-100 dark:bg-green-800/40 text-green-800 rounded">현재</span>
               </div>
               <div class="text-xs text-gray-600 mt-1" x-text="m.desc"></div>
               <div class="text-[11px] text-gray-400 mt-0.5">
@@ -271,6 +788,46 @@
             </div>
           </label>
         </template>
+      </div>
+
+      <!-- Phase 8B: 디바이스 선택 (CPU / GPU / 자동) -->
+      <div class="mt-4 pt-4 border-t border-gray-100">
+        <label class="block text-sm font-medium text-gray-700 mb-2">
+          처리 디바이스
+        </label>
+        <div class="grid grid-cols-3 gap-2">
+          <label class="flex flex-col items-center p-2 rounded border cursor-pointer transition text-center"
+                 :class="settings.whisper.device === 'auto' ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:border-blue-300 dark:border-blue-700'">
+            <input type="radio" name="device" value="auto" x-model="settings.whisper.device" class="sr-only" />
+            <span class="text-sm font-semibold">🤖 자동</span>
+            <span class="text-[10px] text-gray-500 mt-0.5">GPU 가능 시 사용</span>
+          </label>
+          <label class="flex flex-col items-center p-2 rounded border cursor-pointer transition text-center"
+                 :class="settings.whisper.device === 'cpu' ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:border-blue-300 dark:border-blue-700'">
+            <input type="radio" name="device" value="cpu" x-model="settings.whisper.device" class="sr-only" />
+            <span class="text-sm font-semibold">💻 CPU</span>
+            <span class="text-[10px] text-gray-500 mt-0.5">강제 CPU 사용</span>
+          </label>
+          <label class="flex flex-col items-center p-2 rounded border cursor-pointer transition text-center relative"
+                 :class="settings.whisper.device === 'cuda' ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:border-blue-300 dark:border-blue-700'">
+            <input type="radio" name="device" value="cuda" x-model="settings.whisper.device" class="sr-only"
+                   :disabled="systemSpecs && !systemSpecs.gpu" />
+            <span class="text-sm font-semibold" :class="systemSpecs && !systemSpecs.gpu ? 'text-gray-400' : ''">⚡ GPU</span>
+            <span class="text-[10px] text-gray-500 mt-0.5">강제 NVIDIA GPU</span>
+            <span x-show="systemSpecs && !systemSpecs.gpu" x-cloak
+                  class="absolute -top-1 -right-1 text-[9px] bg-gray-200 text-gray-600 px-1 rounded">미감지</span>
+          </label>
+        </div>
+        <div class="text-[11px] text-gray-500 mt-2 leading-snug">
+          <span x-show="settings.whisper.device === 'cuda' && systemSpecs && !systemSpecs.gpu" x-cloak
+                class="text-amber-700 dark:text-amber-300">
+            ⚠ GPU 가 감지되지 않은 상태에서 강제 GPU 모드를 사용하면 모델 로딩 시 에러가 납니다.
+            CUDA 패키지 (torch+cu121, nvidia-cublas-cu12, nvidia-cudnn-cu12) 설치 필요.
+          </span>
+          <span x-show="settings.whisper.device === 'auto'">
+            GPU 사용 가능하면 자동으로 GPU, 아니면 CPU 폴백 (가장 안전한 옵션).
+          </span>
+        </div>
       </div>
 
       <!-- beam_size -->
@@ -287,7 +844,7 @@
 
       <!-- 모델 변경 시 안내 -->
       <div x-show="whisperResult.needs_warmup" x-cloak
-           class="mt-3 bg-amber-50 border border-amber-300 rounded-lg p-3 text-sm text-amber-900">
+           class="mt-3 bg-amber-50 border border-amber-300 dark:border-amber-700 rounded-lg p-3 text-sm text-amber-900 dark:text-amber-200">
         ⚠ 모델 사이즈를 변경했습니다.
         다음 녹음 시작 시 자동으로 재로딩됩니다 (필요 시 다운로드).
         지금 녹음을 시작하려면 <a href="/live" class="underline">/live 페이지</a>에서 warmup 을 다시 해주세요.
@@ -296,7 +853,7 @@
 
 
     <!-- ============ 키워드 사전 ============ -->
-    <section class="bg-white rounded-xl border border-gray-200 p-5">
+    <section x-show="currentTab === 'keywords'" x-cloak class="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 p-5">
       <div class="flex items-center justify-between mb-3">
         <h2 class="font-semibold flex items-center gap-2">
           <span>📚</span> 인테리어 키워드 사전
@@ -305,7 +862,7 @@
         <div class="flex gap-2">
           <button @click="resetVocab()"
                   :disabled="savingVocab"
-                  class="text-xs text-gray-600 hover:text-gray-900 px-2 py-1 border border-gray-300 rounded">
+                  class="text-xs text-gray-600 hover:text-gray-900 dark:text-gray-100 px-2 py-1 border border-gray-300 dark:border-gray-600 rounded">
             기본값 복원
           </button>
           <button @click="saveVocab()"
@@ -324,7 +881,7 @@
 
       <textarea x-model="settings.whisper.interior_vocab"
                 rows="14"
-                class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500 leading-relaxed"></textarea>
+                class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500 leading-relaxed"></textarea>
 
       <div class="text-[10px] text-gray-400 mt-1 font-mono">
         문자 수: <span x-text="(settings.whisper.interior_vocab || '').length"></span>
@@ -334,7 +891,7 @@
 
 
     <!-- ============ 노이즈 억제 ============ -->
-    <section class="bg-white rounded-xl border border-gray-200 p-5">
+    <section x-show="currentTab === 'asr'" x-cloak class="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 p-5">
       <div class="flex items-center justify-between mb-3">
         <h2 class="font-semibold flex items-center gap-2">
           <span>🔇</span> 노이즈 억제 (silero-denoise)
@@ -344,7 +901,7 @@
                  :checked="settings.noise.suppression_enabled"
                  @change="toggleNoise($event.target.checked)" />
           <div class="w-11 h-6 bg-gray-200 rounded-full peer peer-checked:bg-blue-600
-                      after:content-[''] after:absolute after:bg-white after:rounded-full
+                      after:content-[''] after:absolute after:bg-white dark:bg-gray-800 after:rounded-full
                       after:h-5 after:w-5 after:transition-all
                       peer-checked:after:translate-x-5
                       relative after:left-[2px] after:top-[2px]"></div>
@@ -358,7 +915,7 @@
       </div>
 
       <div x-show="settings.noise.suppression_enabled" x-cloak
-           class="mt-3 bg-blue-50 border border-blue-200 rounded-lg p-3 text-xs text-blue-900 space-y-1 leading-relaxed">
+           class="mt-3 bg-blue-50 border border-blue-200 dark:border-blue-700/50 rounded-lg p-3 text-xs text-blue-900 dark:text-blue-200 space-y-1 leading-relaxed">
         <div>· 첫 사용 시 모델 자동 다운로드 (~52MB, 인터넷 필요)</div>
         <div>· CPU 부담: 100ms 블록당 약 30~60ms 추가 처리</div>
         <div>· 카드 표시까지 0.3~0.5초 정도 더 걸릴 수 있음</div>
@@ -368,7 +925,7 @@
 
 
     <!-- ============ VAD ============ -->
-    <section class="bg-white rounded-xl border border-gray-200 p-5">
+    <section x-show="currentTab === 'asr'" x-cloak class="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 p-5">
       <div class="flex items-center justify-between mb-3">
         <h2 class="font-semibold flex items-center gap-2">
           <span>🎚</span> VAD 임계값 (음성 vs 잡음 구분)
@@ -396,8 +953,375 @@
         본인 목소리가 자주 끊긴다면 값을 낮추세요.
       </div>
 
-      <div class="mt-2 text-[11px] text-amber-700">
+      <div class="mt-2 text-[11px] text-amber-700 dark:text-amber-300">
         ※ 변경 후 다음 녹음 세션부터 반영됩니다.
+      </div>
+    </section>
+
+
+    <!-- ============ v2.6.0 JJ: OJT 엑셀 자동 동기화 ============ -->
+    <section x-show="currentTab === 'ojt'" x-cloak class="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5">
+      <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
+        <h2 class="font-semibold flex items-center gap-2 dark:text-gray-100">
+          <span>📊</span> OJT 엑셀 자동 동기화
+        </h2>
+        <span x-show="ojtConfigured" x-cloak class="text-xs bg-emerald-100 dark:bg-emerald-800/40 text-emerald-800 dark:text-emerald-200 px-2 py-1 rounded">✅ 연동 완료</span>
+        <span x-show="!ojtConfigured" x-cloak class="text-xs bg-amber-100 dark:bg-amber-800/40 text-amber-800 dark:text-amber-200 px-2 py-1 rounded">⚠ 아직 연동 안 됨</span>
+      </div>
+      <div class="text-xs text-gray-600 dark:text-gray-300 mb-4 leading-relaxed">
+        디자이너분 OJT 엑셀 파일에 신규 고객 초도상담 결과를 자동으로 한 줄 추가해주는 기능입니다.<br>
+        파일 양식이 디자이너마다 달라서, <strong>본인 OJT 파일을 먼저 등록 → 컬럼 매핑 마법사</strong> 한 번 진행하면 다음부터 자동 사용 가능합니다.
+      </div>
+
+      <!-- STEP 1: 파일 등록 -->
+      <div class="mb-4 p-3 border border-gray-200 dark:border-gray-700 rounded-lg">
+        <div class="text-sm font-semibold mb-2 dark:text-gray-100">① OJT 엑셀 파일 등록</div>
+        <div class="flex gap-2 items-center flex-wrap">
+          <input type="text" x-model="ojtFilePath" readonly
+                 placeholder="OJT 파일 경로를 [📂 찾아보기] 로 선택하세요"
+                 class="flex-1 min-w-[200px] text-xs px-2 py-1.5 border border-gray-300 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 rounded font-mono"/>
+          <button @click="pickOjtFile()" :disabled="ojtPicking"
+                  class="text-sm bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded disabled:bg-gray-300">
+            <span x-show="!ojtPicking">📂 찾아보기</span>
+            <span x-show="ojtPicking" x-cloak>⏳ ...</span>
+          </button>
+        </div>
+        <div x-show="ojtFileError" x-cloak class="mt-2 text-xs text-red-700 bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-700/50 rounded p-2" x-text="ojtFileError"></div>
+      </div>
+
+      <!-- STEP 2: 시트 + 시작 행 + 매핑 -->
+      <div x-show="ojtAnalysis" x-cloak class="mb-4 p-3 border border-gray-200 dark:border-gray-700 rounded-lg">
+        <div class="text-sm font-semibold mb-2 dark:text-gray-100">② 시트 / 시작 행 / 컬럼 매핑</div>
+
+        <!-- 시트 선택 -->
+        <div class="flex items-center gap-2 mb-3 flex-wrap">
+          <label class="text-xs text-gray-700 dark:text-gray-200 min-w-[80px]">사용 시트:</label>
+          <select x-model="ojtSheetName" @change="recheckPreview()"
+                  class="text-xs px-2 py-1 border border-gray-300 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 rounded">
+            <template x-for="s in (ojtAnalysis && ojtAnalysis.sheets) || []" :key="s">
+              <option :value="s" x-text="s"></option>
+            </template>
+          </select>
+          <label class="text-xs text-gray-700 dark:text-gray-200 ml-2">데이터 시작 행:</label>
+          <input type="number" x-model.number="ojtStartRow" min="1" max="100"
+                 class="text-xs px-2 py-1 border border-gray-300 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 rounded w-16"/>
+          <span class="text-[10px] text-gray-400 dark:text-gray-500">(헤더가 1행이면 보통 2)</span>
+        </div>
+
+        <!-- 미리보기 (선택된 시트의 첫 N행) -->
+        <div class="mb-3 overflow-x-auto">
+          <div class="text-[11px] text-gray-500 dark:text-gray-400 mb-1">선택 시트 미리보기 (어느 컬럼이 어떤 데이터인지 확인용):</div>
+          <table class="text-[11px] border-collapse w-full">
+            <thead>
+              <tr>
+                <th class="border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-1 py-0.5 text-gray-500 dark:text-gray-400 text-[10px]">행/열</th>
+                <template x-for="c in colHeaders" :key="c">
+                  <th class="border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-1 py-0.5 text-gray-700 dark:text-gray-200 font-mono text-[10px]" x-text="c"></th>
+                </template>
+              </tr>
+            </thead>
+            <tbody>
+              <template x-for="row in selectedSheetPreview" :key="row.row">
+                <tr>
+                  <td class="border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-1 py-0.5 text-gray-500 dark:text-gray-400 text-[10px] font-mono" x-text="row.row"></td>
+                  <template x-for="cell in paddedCells(row.cells)" :key="cell.col">
+                    <td class="border border-gray-200 dark:border-gray-700 px-1 py-0.5 text-gray-800 dark:text-gray-200 max-w-[120px] truncate" :title="cell.value" x-text="cell.value || ''"></td>
+                  </template>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- 필드 매핑 -->
+        <div class="space-y-1.5">
+          <div class="text-xs font-medium text-gray-700 dark:text-gray-200 mb-1">컬럼 매핑 — 각 항목을 OJT 의 어느 열에 쓸지 선택</div>
+          <template x-for="key in ojtFieldKeys" :key="key">
+            <div class="grid grid-cols-3 gap-2 items-center">
+              <label class="text-xs text-gray-700 dark:text-gray-200" x-text="ojtFieldLabels[key] || key"></label>
+              <select x-model="ojtMapping[key]"
+                      class="col-span-2 text-xs px-2 py-1 border border-gray-300 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 rounded">
+                <option value="">— 사용 안 함 —</option>
+                <template x-for="c in colHeaders" :key="c">
+                  <option :value="c" x-text="'[' + c + '] ' + colHeaderHint(c)"></option>
+                </template>
+              </select>
+            </div>
+          </template>
+        </div>
+      </div>
+
+      <!-- STEP 3: 저장 -->
+      <div x-show="ojtAnalysis" x-cloak class="flex gap-2 flex-wrap">
+        <button @click="saveOjtConfig()" :disabled="ojtSaving"
+                class="text-sm bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-1.5 rounded disabled:bg-gray-300">
+          <span x-show="!ojtSaving">💾 매핑 저장</span>
+          <span x-show="ojtSaving" x-cloak>⏳ 저장 중...</span>
+        </button>
+        <button @click="resetOjtConfig()" x-show="ojtConfigured" x-cloak
+                class="text-sm bg-white dark:bg-gray-700 border border-red-300 dark:border-red-700 text-red-700 dark:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/30 px-3 py-1.5 rounded">
+          🗑 연동 해제
+        </button>
+        <span x-show="ojtSaveResult === 'saved'" x-cloak class="text-xs text-emerald-700 dark:text-emerald-300 self-center">✅ 저장됨</span>
+        <span x-show="ojtSaveError" x-cloak class="text-xs text-red-700 dark:text-red-300 self-center" x-text="ojtSaveError"></span>
+      </div>
+
+      <div class="mt-4 text-[11px] text-gray-400 dark:text-gray-500 leading-relaxed">
+        ⚠ 동기화 시 자동으로 백업이 <code class="bg-gray-100 dark:bg-gray-700 px-1 rounded">%APPDATA%\InterioNote\ojt_backup\</code> 에 저장됩니다.<br>
+        ⚠ 동기화는 <strong>신규 고객 초도상담 종료 후</strong> 에만 동작합니다 (디자인·견적 미팅, 기존 고객은 자동 동기화 안 함).<br>
+        ⚠ OJT 파일이 OneDrive 클라우드 전용인 경우 → 우클릭 → "항상 이 장치에 보관" 으로 다운로드 후 사용.
+      </div>
+    </section>
+
+
+    <!-- ============ v2.8.0 FF: 견적서 양식 자동 작성 ============ -->
+    <section x-show="currentTab === 'quote'" x-cloak class="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5">
+      <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
+        <h2 class="font-semibold flex items-center gap-2 dark:text-gray-100">
+          <span>💰</span> 견적서 양식 자동 작성
+        </h2>
+        <span x-show="quoteConfigured" x-cloak class="text-xs bg-emerald-100 dark:bg-emerald-800/40 text-emerald-800 dark:text-emerald-200 px-2 py-1 rounded">✅ 연동 완료</span>
+        <span x-show="!quoteConfigured" x-cloak class="text-xs bg-amber-100 dark:bg-amber-800/40 text-amber-800 dark:text-amber-200 px-2 py-1 rounded">⚠ 아직 연동 안 됨</span>
+      </div>
+      <div class="text-xs text-gray-600 dark:text-gray-300 mb-4 leading-relaxed">
+        본인 견적서 엑셀 양식을 등록하면, AI 분석 결과 (고객명·평형·주소·공사 종류 등) 가 자동으로 견적서 셀에 채워진 <strong>초안 사본</strong> 이 고객 폴더에 생성됩니다.
+        <br>실제 견적 항목 (자재비·인건비) 은 양식 그대로 보존되니 사용자가 검토 후 입력하시면 됩니다.
+      </div>
+
+      <!-- 담당자 이름 -->
+      <div class="mb-3 p-3 border border-gray-200 dark:border-gray-700 rounded-lg">
+        <div class="text-sm font-semibold mb-2 dark:text-gray-100">담당자 이름 (자동 채우기)</div>
+        <input type="text" x-model="quoteDesignerName"
+               placeholder="예: 홍길동"
+               class="text-sm px-2 py-1.5 border border-gray-300 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 rounded w-48 focus:outline-none focus:border-blue-500"/>
+      </div>
+
+      <!-- STEP 1: 양식 파일 -->
+      <div class="mb-4 p-3 border border-gray-200 dark:border-gray-700 rounded-lg">
+        <div class="text-sm font-semibold mb-2 dark:text-gray-100">① 견적서 양식 파일 등록</div>
+        <div class="flex gap-2 items-center flex-wrap mb-2">
+          <input type="text" x-model="quoteTemplatePath" readonly
+                 placeholder="견적서 .xlsx 파일을 [📂 찾아보기] 로 선택하세요"
+                 class="flex-1 min-w-[200px] text-xs px-2 py-1.5 border border-gray-300 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 rounded font-mono"/>
+          <button @click="pickQuoteFile()" :disabled="quotePicking"
+                  class="text-sm bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded disabled:bg-gray-300">
+            <span x-show="!quotePicking">📂 찾아보기</span>
+            <span x-show="quotePicking" x-cloak>⏳ ...</span>
+          </button>
+        </div>
+        <input type="text" x-model="quoteTemplateName"
+               placeholder="양식 이름 (예: 전체견적서_신입용 — 식별용 별명)"
+               class="w-full text-xs px-2 py-1.5 border border-gray-300 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 rounded"/>
+        <div x-show="quoteFileError" x-cloak class="mt-2 text-xs text-red-700 bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-700/50 rounded p-2 whitespace-pre-line" x-text="quoteFileError"></div>
+      </div>
+
+      <!-- STEP 2: 셀 매핑 -->
+      <div x-show="quoteAnalysis" x-cloak class="mb-4 p-3 border border-gray-200 dark:border-gray-700 rounded-lg">
+        <div class="text-sm font-semibold mb-2 dark:text-gray-100">② 자동 채우기 셀 매핑</div>
+        <div class="text-[11px] text-gray-500 dark:text-gray-400 mb-2">
+          각 항목이 견적서의 어느 시트·셀에 들어갈지 지정하세요. 비워두면 자동 채우기 안 함.
+        </div>
+
+        <!-- 시트 미리보기 (선택된 시트의 첫 N×N 셀 — 어떤 라벨이 어디 있는지 확인용) -->
+        <div class="mb-2 flex items-center gap-3 flex-wrap">
+          <div class="flex items-center gap-2">
+            <label class="text-xs text-gray-700 dark:text-gray-200">미리볼 시트:</label>
+            <select x-model="quotePreviewSheet" @change="quoteActiveMappingKey = ''"
+                    class="text-xs px-2 py-1 border border-gray-300 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 rounded">
+              <template x-for="s in (quoteAnalysis && quoteAnalysis.sheets) || []" :key="s">
+                <option :value="s" x-text="s"></option>
+              </template>
+            </select>
+          </div>
+          <div x-show="quoteActiveMappingKey" x-cloak
+               class="text-[11px] bg-blue-100 dark:bg-blue-900/50 text-blue-800 dark:text-blue-200 px-2 py-1 rounded-full flex items-center gap-1">
+            <span>📍</span>
+            <span>아래 표에서 셀 클릭 →</span>
+            <strong x-text="quoteFieldLabels[quoteActiveMappingKey] || quoteActiveMappingKey"></strong>
+            <button @click="quoteActiveMappingKey = ''" class="ml-1 text-blue-600 dark:text-blue-300 hover:text-red-500 font-bold">✕</button>
+          </div>
+        </div>
+        <div class="overflow-x-auto mb-3 border border-gray-200 dark:border-gray-700 rounded"
+             :class="quoteActiveMappingKey ? 'ring-2 ring-blue-400' : ''">
+          <table class="text-[10px] border-collapse w-full">
+            <thead>
+              <tr>
+                <th class="border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-700 px-1 py-0.5 text-gray-500 dark:text-gray-400">행/열</th>
+                <template x-for="cIdx in quoteSheetColCount" :key="cIdx">
+                  <th class="border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-700 px-1 py-0.5 text-gray-700 dark:text-gray-200 font-mono" x-text="_colLetterFor(cIdx)"></th>
+                </template>
+              </tr>
+            </thead>
+            <tbody>
+              <template x-for="row in quoteSheetRows" :key="row[0] && row[0].row">
+                <tr>
+                  <td class="border-b border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-700 px-1 py-0.5 text-gray-500 dark:text-gray-400 font-mono" x-text="row[0] && row[0].row"></td>
+                  <template x-for="cell in row" :key="cell.address">
+                    <td class="border-b border-gray-100 dark:border-gray-700 px-1 py-0.5 max-w-[80px] truncate transition-colors"
+                        :class="[
+                          quoteActiveMappingKey ? 'cursor-pointer hover:bg-blue-200 dark:hover:bg-blue-800/60 text-gray-800 dark:text-gray-200' : 'text-gray-800 dark:text-gray-200',
+                          _isMappedCell(cell) ? 'bg-emerald-100 dark:bg-emerald-900/40 font-semibold' : ''
+                        ]"
+                        :title="cell.address + (cell.value ? ': ' + cell.value : '') + (_isMappedCell(cell) ? ' ✅매핑됨' : '')"
+                        @click="quoteActiveMappingKey ? selectQuoteCell(cell) : null"
+                        x-text="cell.value || ''"></td>
+                  </template>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+        </div>
+        <div x-show="!quoteActiveMappingKey" x-cloak class="text-[11px] text-gray-400 dark:text-gray-500 mb-2">
+          💡 아래 항목의 [셀 선택] 버튼을 누른 후, 위 표에서 원하는 셀을 클릭하면 자동 입력됩니다. 녹색 셀은 이미 매핑된 셀입니다.
+        </div>
+
+        <!-- 필드별 시트+셀 매핑 -->
+        <div class="space-y-1.5">
+          <template x-for="key in quoteFieldKeys" :key="key">
+            <div class="flex items-center gap-2">
+              <label class="text-xs text-gray-700 dark:text-gray-200 w-24 shrink-0" x-text="quoteFieldLabels[key] || key"></label>
+              <select x-model="quoteMapping[key] && quoteMapping[key].sheet" @change="_ensureMappingObj(key)"
+                      class="text-xs px-2 py-1 border border-gray-300 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 rounded flex-1 min-w-0">
+                <option value="">— 시트 —</option>
+                <template x-for="s in (quoteAnalysis && quoteAnalysis.sheets) || []" :key="s">
+                  <option :value="s" x-text="s"></option>
+                </template>
+              </select>
+              <input type="text" x-model="quoteMapping[key] && quoteMapping[key].cell" @change="_ensureMappingObj(key)"
+                     placeholder="셀(예:B3)"
+                     class="text-xs px-2 py-1 border border-gray-300 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 rounded w-20 font-mono uppercase"
+                     :class="quoteActiveMappingKey === key ? 'border-blue-500 ring-1 ring-blue-400' : ''"/>
+              <button @click="activateQuoteMapping(key)"
+                      :class="quoteActiveMappingKey === key
+                        ? 'bg-blue-600 text-white border-blue-600'
+                        : 'bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:border-blue-400'"
+                      class="text-[10px] border px-1.5 py-0.5 rounded whitespace-nowrap shrink-0">
+                <span x-show="quoteActiveMappingKey !== key">📍 셀 선택</span>
+                <span x-show="quoteActiveMappingKey === key" x-cloak>✕ 취소</span>
+              </button>
+            </div>
+          </template>
+        </div>
+      </div>
+
+      <!-- STEP 3 -->
+      <div class="flex gap-2 flex-wrap">
+        <button @click="saveQuoteConfig()" :disabled="quoteSaving"
+                class="text-sm bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-1.5 rounded disabled:bg-gray-300">
+          <span x-show="!quoteSaving">💾 양식 저장</span>
+          <span x-show="quoteSaving" x-cloak>⏳ 저장 중...</span>
+        </button>
+        <button @click="resetQuoteConfig()" x-show="quoteConfigured" x-cloak
+                class="text-sm bg-white dark:bg-gray-700 border border-red-300 dark:border-red-700 text-red-700 dark:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/30 px-3 py-1.5 rounded">
+          🗑 양식 해제
+        </button>
+        <span x-show="quoteSaveResult === 'saved'" x-cloak class="text-xs text-emerald-700 dark:text-emerald-300 self-center">✅ 저장됨</span>
+        <span x-show="quoteSaveError" x-cloak class="text-xs text-red-700 dark:text-red-300 self-center" x-text="quoteSaveError"></span>
+      </div>
+
+      <div class="mt-3 text-[11px] text-gray-400 dark:text-gray-500 leading-relaxed">
+        💡 권장 매핑 (대부분 견적서 양식 공통):
+        <br>· 고객명 → 고객정보!B3 / 연락처 → 고객정보!B4 / 공사현장 주소 → 고객정보!B5 / 공사기간 → 고객정보!B6
+        <br>· 담당자 → 고객정보!G1 / 평형 → 비어있으면 고객정보!B5 안에 합쳐 작성
+      </div>
+    </section>
+
+
+    <!-- ============ v2.7.0 Q: 빠른 답변 템플릿 ============ -->
+    <section x-show="currentTab === 'replies'" x-cloak class="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5">
+      <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
+        <h2 class="font-semibold flex items-center gap-2 dark:text-gray-100">
+          <span>💬</span> 빠른 답변 템플릿
+          <span class="text-[11px] text-gray-500 dark:text-gray-400 font-normal">(자주 쓰는 안내 문구 — 카톡·메일 즉시 붙여넣기)</span>
+        </h2>
+        <button @click="newQuickReply()"
+                class="text-sm bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded">
+          ➕ 새 템플릿
+        </button>
+      </div>
+
+      <!-- 새 템플릿 / 편집 폼 -->
+      <div x-show="qrEditing !== null" x-cloak class="mb-4 p-3 bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-700/50 rounded-lg space-y-2">
+        <div class="grid grid-cols-2 gap-2">
+          <input type="text" x-model="qrEditing.title" placeholder="제목 (예: 자재 안내, AS 절차)"
+                 class="text-sm px-2 py-1 border border-gray-300 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 rounded focus:outline-none focus:border-blue-500"/>
+          <input type="text" x-model="qrEditing.category" placeholder="카테고리 (선택, 예: 자재, AS)"
+                 class="text-sm px-2 py-1 border border-gray-300 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 rounded focus:outline-none focus:border-blue-500"/>
+        </div>
+        <textarea x-model="qrEditing.content" rows="5"
+                  placeholder="템플릿 내용을 입력하세요. 자주 쓰는 안내·답변·견적 안내 문구 등."
+                  class="w-full text-sm px-2 py-1 border border-gray-300 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 rounded focus:outline-none focus:border-blue-500"></textarea>
+        <div class="flex gap-2">
+          <button @click="saveQuickReply()"
+                  class="text-sm bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1 rounded">💾 저장</button>
+          <button @click="qrEditing = null"
+                  class="text-sm text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 px-3 py-1">취소</button>
+          <span x-show="qrSaveError" x-cloak class="text-xs text-red-700 dark:text-red-300 self-center" x-text="qrSaveError"></span>
+        </div>
+      </div>
+
+      <!-- 템플릿 목록 -->
+      <div x-show="!quickReplies.length && qrEditing === null" class="text-sm text-gray-400 dark:text-gray-500 italic py-4 text-center">
+        아직 템플릿이 없습니다. 우측 상단 [➕ 새 템플릿] 으로 추가하세요.
+      </div>
+      <ul class="space-y-2">
+        <template x-for="r in quickReplies" :key="r.id">
+          <li class="border border-gray-200 dark:border-gray-700 rounded-lg p-3">
+            <div class="flex items-center justify-between gap-2 mb-1 flex-wrap">
+              <div class="flex items-center gap-2 min-w-0">
+                <span class="font-semibold dark:text-gray-100" x-text="r.title"></span>
+                <span x-show="r.category" x-cloak class="text-[10px] bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 px-2 py-0.5 rounded" x-text="r.category"></span>
+              </div>
+              <div class="flex gap-1">
+                <button @click="copyReplyContent(r)"
+                        class="text-xs px-2 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded">
+                  📋 복사
+                </button>
+                <button @click="editQuickReply(r)"
+                        class="text-xs px-2 py-1 border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700 dark:text-gray-200 rounded">
+                  편집
+                </button>
+                <button @click="deleteQuickReply(r)"
+                        class="text-xs px-2 py-1 border border-red-300 dark:border-red-700 text-red-700 dark:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/30 rounded">
+                  삭제
+                </button>
+              </div>
+            </div>
+            <div class="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap" x-text="r.content"></div>
+          </li>
+        </template>
+      </ul>
+
+      <div class="mt-3 text-[11px] text-gray-400 dark:text-gray-500">
+        💡 매장 상담 / 카톡 답변 / 메일 안내에 자주 쓰는 문구를 등록해두세요. 한 클릭으로 클립보드 복사 → 즉시 붙여넣기.
+      </div>
+
+      <!-- v2.7.0 토스트 (settings 페이지에는 토스트 영역이 없으니 inline) -->
+      <div x-show="qrCopyToast" x-cloak
+           class="fixed bottom-6 right-6 bg-emerald-600 text-white text-sm px-4 py-2 rounded-lg shadow-lg z-50"
+           x-text="qrCopyToast"></div>
+    </section>
+
+
+    <!-- ============ v2.5.0: 단축키 ============ -->
+    <section x-show="currentTab === 'shortcuts'" x-cloak class="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5">
+      <h2 class="font-semibold flex items-center gap-2 mb-3 dark:text-gray-100">
+        <span>⌨️</span> 단축키 안내
+      </h2>
+      <div class="text-xs text-gray-600 dark:text-gray-400 mb-3">
+        녹음 중·완료 화면에서 사용 가능한 키. 키 자체 변경은 다음 업데이트에 추가될 예정입니다.
+      </div>
+      <ul class="space-y-2">
+        <template x-for="(item, key) in keymap" :key="key">
+          <li class="flex items-center gap-3 px-3 py-2 bg-gray-50 dark:bg-gray-900/30 rounded">
+            <kbd class="px-2 py-1 bg-white dark:bg-gray-700 dark:text-gray-100 border border-gray-300 dark:border-gray-600 rounded text-sm font-mono min-w-[2rem] text-center"
+                 x-text="item.key"></kbd>
+            <span class="text-sm dark:text-gray-200" x-text="item.desc"></span>
+          </li>
+        </template>
+      </ul>
+      <div class="mt-4 text-[11px] text-gray-500 dark:text-gray-400 leading-relaxed">
+        💡 녹음 화면에서 <kbd class="px-1 bg-gray-100 dark:bg-gray-700 dark:text-gray-100 border border-gray-300 dark:border-gray-600 rounded">F1</kbd> 키를 누르면 같은 도움말이 모달로 뜹니다.
       </div>
     </section>
 
@@ -407,6 +1331,698 @@
          class="fixed bottom-6 right-6 bg-gray-900 text-white text-sm px-4 py-3 rounded-lg shadow-lg"
          :class="toast.kind === 'error' ? 'bg-red-700' : 'bg-gray-900'"
          x-text="toast.msg"></div>
+
+    <!-- v2.4.1: 저작권 / 사용 제한 안내 (눈에 덜 띄는 작은 텍스트) -->
+    <div class="mt-12 mb-4 text-center text-[10px] text-gray-300 dark:text-gray-600 leading-relaxed select-none">
+      © 2026 InterioNote · 제작자 본인 사용 목적으로 만든 비공식 소프트웨어입니다.<br>
+      허가 없이 배포·복제·역공학·변형·재판매하는 행위는 저작권법에 따라 법적 책임이 발생할 수 있습니다.
+    </div>
+
+    <!-- v2.5.2: 개발자 크레딧 (모노그램 풍, 간지나고 깔끔하게) -->
+    <div class="mt-2 mb-8 text-center select-none">
+      <div class="inline-block px-6 py-2 border-t border-gray-200 dark:border-gray-700">
+        <div class="text-[9px] tracking-[0.4em] font-light text-gray-400 dark:text-gray-500">
+          DESIGNED &amp; DEVELOPED BY
+        </div>
+        <div class="text-sm font-semibold tracking-[0.2em] text-gray-700 dark:text-gray-300 mt-1 transition-colors hover:text-gray-900 dark:hover:text-gray-100">
+          HAN SEUNGMIN
+        </div>
+        <div class="text-[9px] font-light text-gray-300 dark:text-gray-600 tracking-widest mt-0.5">
+          한승민 · interior designer
+        </div>
+      </div>
+    </div>
+
+    <!-- ============ v3.0.0 Phase 3: AI 분석 탭 ============ -->
+    <template x-if="currentTab === 'ai'">
+      <div class="space-y-6">
+
+        <!-- ============ v3.5.2: 원격 데스크톱 Ollama (마스터 본인만 사용) ============ -->
+        <section x-show="isMaster" x-cloak
+                 class="bg-gradient-to-br from-indigo-50 to-purple-50 dark:from-indigo-950/30 dark:to-purple-950/30 rounded-xl border border-indigo-200 dark:border-indigo-800 p-5">
+          <div class="flex items-center justify-between mb-2">
+            <h2 class="text-base font-semibold flex items-center gap-2 dark:text-gray-100">
+              <span>🖥</span> 원격 데스크톱 컴퓨팅
+              <span class="text-xs bg-indigo-200 dark:bg-indigo-800 text-indigo-800 dark:text-indigo-200 px-2 py-0.5 rounded">본인 전용</span>
+            </h2>
+            <span x-show="ollamaRemoteUrl" x-cloak
+                  class="text-xs px-2 py-1 rounded-full"
+                  :class="ollamaRemoteState === 'ok' ? 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300' :
+                         ollamaRemoteState === 'fail' ? 'bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300' :
+                         'bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400'">
+              <span x-text="ollamaRemoteState === 'ok' ? '🟢 연결됨' : ollamaRemoteState === 'fail' ? '🔴 연결 안 됨' : '⚪ 미확인'"></span>
+            </span>
+          </div>
+          <p class="text-sm text-gray-600 dark:text-gray-400 mb-3">
+            노트북에서 작업할 때 데스크톱(고사양 PC)의 Ollama 를 사용합니다.
+            AI 분석이 5~10배 빨라지고, 노트북 발열·소음이 줄어듭니다.
+            <strong>본인 계정에만 적용</strong>되며, 다른 사용자는 영향받지 않습니다.
+          </p>
+
+          <!-- 입력 행 -->
+          <div class="flex items-center gap-2 mb-2">
+            <input x-model="ollamaRemoteUrlInput" type="text"
+                   placeholder="http://100.64.1.5:11434 (Tailscale IP 권장)"
+                   class="flex-1 text-sm border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 bg-white dark:bg-gray-700 dark:text-gray-100 font-mono"/>
+            <button @click="testOllamaRemote()"
+                    :disabled="ollamaRemoteBusy"
+                    class="text-sm bg-gray-700 hover:bg-gray-900 dark:bg-gray-600 dark:hover:bg-gray-500 text-white px-3 py-2 rounded-lg whitespace-nowrap disabled:opacity-50">
+              <span x-show="!ollamaRemoteBusy">🔌 연결 테스트</span>
+              <span x-show="ollamaRemoteBusy" x-cloak>⏳</span>
+            </button>
+            <button @click="saveOllamaRemote()"
+                    :disabled="ollamaRemoteBusy"
+                    class="text-sm bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg disabled:opacity-50">
+              저장
+            </button>
+          </div>
+
+          <!-- 결과 메시지 -->
+          <div x-show="ollamaRemoteMsg" x-cloak class="text-sm mb-2 p-2 rounded"
+               :class="ollamaRemoteState === 'ok' ? 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-800 dark:text-emerald-200' :
+                      ollamaRemoteState === 'fail' ? 'bg-red-50 dark:bg-red-900/20 text-red-800 dark:text-red-200' :
+                      'bg-gray-50 dark:bg-gray-700/30 text-gray-700 dark:text-gray-300'"
+               x-html="ollamaRemoteMsg"></div>
+
+          <!-- 현재 적용된 URL -->
+          <div class="text-xs text-gray-500 dark:text-gray-400 mb-3" x-show="ollamaRemoteUrl" x-cloak>
+            현재 적용 중: <code class="bg-gray-100 dark:bg-gray-700 px-1 rounded" x-text="ollamaRemoteUrl"></code>
+            <button @click="clearOllamaRemote()" class="text-red-500 hover:text-red-700 ml-2">🗑 제거 (로컬로 복귀)</button>
+          </div>
+
+          <!-- 안내 박스 -->
+          <details class="bg-white/60 dark:bg-gray-800/40 rounded-lg p-3 text-sm">
+            <summary class="cursor-pointer font-medium text-indigo-700 dark:text-indigo-300">📖 처음 설정하시나요? 클릭해서 단계별 안내 보기</summary>
+            <div class="mt-3 space-y-2 text-gray-700 dark:text-gray-300">
+              <p><strong>① 데스크톱(고사양 PC)에서:</strong></p>
+              <ol class="list-decimal pl-5 space-y-1 text-xs">
+                <li><a href="https://tailscale.com/download" target="_blank" class="text-blue-600 hover:underline">Tailscale 다운로드</a> 후 Google 또는 Microsoft 계정으로 로그인</li>
+                <li>cmd 창 관리자 권한으로 열고 다음 한 줄 입력:<br>
+                    <code class="block bg-gray-900 text-emerald-300 p-2 rounded mt-1 text-xs select-all">setx OLLAMA_HOST "0.0.0.0:11434"</code></li>
+                <li>Ollama 시스템 트레이 아이콘 우클릭 → Quit → 다시 실행</li>
+                <li>Tailscale 트레이 아이콘 클릭 → 데스크톱 PC 의 IP 확인 (예: <code>100.64.1.5</code>)</li>
+                <li>전원 옵션 → "절전 모드 안 함" 으로 변경 (외출 시에도 켜진 상태 유지)</li>
+              </ol>
+              <p class="mt-3"><strong>② 노트북(이 PC)에서:</strong></p>
+              <ol class="list-decimal pl-5 space-y-1 text-xs">
+                <li>Tailscale 다운로드 → <strong>같은 계정으로</strong> 로그인</li>
+                <li>위 입력란에 <code>http://[데스크톱 Tailscale IP]:11434</code> 입력 (예: <code>http://100.64.1.5:11434</code>)</li>
+                <li>🔌 연결 테스트 클릭 → 🟢 연결됨 확인 후 저장</li>
+              </ol>
+              <p class="text-xs text-gray-500 dark:text-gray-400 mt-3">
+                💡 데스크톱이 꺼지거나 인터넷이 끊기면 자동으로 노트북의 Ollama 로 전환됩니다 (분석은 계속 작동).
+              </p>
+            </div>
+          </details>
+        </section>
+
+        <!-- Ollama 모델 선택 -->
+        <section class="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 p-5">
+          <h2 class="text-base font-semibold mb-2">🤖 AI 분석 모델</h2>
+          <div class="text-sm text-gray-600 dark:text-gray-400 mb-3">
+            아래 드롭다운은 현재 <strong>이 PC 에 설치된 Ollama 모델</strong> 목록입니다.
+            모델을 선택하고 [저장] 하면 이후 AI 분석에 해당 모델이 사용됩니다.
+          </div>
+
+          <!-- 모델 선택 행 -->
+          <div class="flex items-center gap-3 mb-3">
+            <select x-model="selectedOllamaModel"
+                    @change="_ollamaModelUserChanged = true"
+                    class="flex-1 text-sm border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 bg-white dark:bg-gray-700 dark:text-gray-100">
+              <template x-if="ollamaModels.length === 0">
+                <option :value="selectedOllamaModel" x-text="selectedOllamaModel || 'qwen2.5:3b'"></option>
+              </template>
+              <template x-for="m in ollamaModels" :key="m">
+                <option :value="m" x-text="m"></option>
+              </template>
+            </select>
+            <button @click="loadOllamaModels()"
+                    :disabled="ollamaModelLoading"
+                    class="text-sm text-blue-600 hover:text-blue-800 dark:text-blue-400 whitespace-nowrap disabled:opacity-50">
+              <span x-show="!ollamaModelLoading">🔄 새로고침</span>
+              <span x-show="ollamaModelLoading" x-cloak>⏳</span>
+            </button>
+            <button @click="saveOllamaModel()"
+                    class="text-sm bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg">
+              저장
+            </button>
+          </div>
+          <div x-show="ollamaModelSaved" x-cloak class="text-xs text-emerald-600 dark:text-emerald-400 mb-2">✅ 저장됨</div>
+          <div x-show="ollamaModelError" x-cloak class="text-xs text-red-600 dark:text-red-400 mb-2" x-text="ollamaModelError"></div>
+          <div class="text-xs text-gray-500 dark:text-gray-400 mb-4">
+            현재 적용 중: <code class="bg-gray-100 dark:bg-gray-700 px-1 rounded" x-text="settings.ollama && settings.ollama.model || 'qwen2.5:3b'"></code>
+          </div>
+
+          <!-- 추천 모델 안내 -->
+          <div class="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-3 border border-blue-100 dark:border-blue-800">
+            <div class="text-xs font-semibold text-blue-800 dark:text-blue-300 mb-2">📥 추천 모델 (cmd 에서 실행하여 설치)</div>
+            <div class="space-y-1.5">
+              <div class="flex items-center gap-2">
+                <span class="text-xs bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 px-1.5 py-0.5 rounded font-medium shrink-0">기본 ★</span>
+                <code class="text-xs text-blue-700 dark:text-blue-300 select-all">ollama pull qwen2.5:3b</code>
+                <span class="text-xs text-gray-400 dark:text-gray-500">· 1.9GB · 빠름</span>
+              </div>
+              <div class="flex items-center gap-2">
+                <span class="text-xs bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300 px-1.5 py-0.5 rounded font-medium shrink-0">고품질</span>
+                <code class="text-xs text-blue-700 dark:text-blue-300 select-all">ollama pull qwen2.5:7b</code>
+                <span class="text-xs text-gray-400 dark:text-gray-500">· 4.7GB · 분석 더 상세</span>
+              </div>
+              <div class="flex items-center gap-2">
+                <span class="text-xs bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 px-1.5 py-0.5 rounded font-medium shrink-0">대안</span>
+                <code class="text-xs text-blue-700 dark:text-blue-300 select-all">ollama pull llama3.2:3b</code>
+                <span class="text-xs text-gray-400 dark:text-gray-500">· 2.0GB</span>
+              </div>
+            </div>
+            <div class="mt-2 text-xs text-gray-500 dark:text-gray-400">설치 후 🔄 새로고침 → 드롭다운에서 선택 → 저장</div>
+          </div>
+        </section>
+
+        <!-- 분석 추가 항목 -->
+        <section class="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 p-5">
+          <h2 class="text-base font-semibold mb-1">📋 분석 추가 항목</h2>
+          <p class="text-sm text-gray-500 dark:text-gray-400 mb-4">
+            기본 분석 항목 외에 상담 종류별로 추출할 내용을 추가합니다.
+            추가한 항목은 AI 분석 실행 시 자동으로 포함됩니다.
+          </p>
+          <!-- 상담 종류 탭 -->
+          <div class="flex gap-1 mb-4 border-b border-gray-200 dark:border-gray-700">
+            <template x-for="mt in ['초도상담','디자인미팅','견적미팅']" :key="mt">
+              <button @click="aiMeetingType = mt; extraItemsError = ''"
+                      :class="aiMeetingType === mt
+                        ? 'border-b-2 border-blue-500 text-blue-600 font-semibold'
+                        : 'text-gray-500 hover:text-gray-800 dark:hover:text-gray-200'"
+                      class="px-3 py-1.5 text-sm transition-colors" x-text="mt"></button>
+            </template>
+          </div>
+          <!-- 현재 항목 목록 -->
+          <div class="space-y-2 mb-4 min-h-[40px]">
+            <template x-if="(extraItems[aiMeetingType] || []).length === 0">
+              <p class="text-sm text-gray-400 dark:text-gray-500 italic">추가 항목 없음 (기본 항목만 분석)</p>
+            </template>
+            <template x-for="item in (extraItems[aiMeetingType] || [])" :key="item.key">
+              <div class="flex items-center gap-2 bg-gray-50 dark:bg-gray-700 rounded-lg px-3 py-2">
+                <span class="text-sm flex-1" x-text="item.label"></span>
+                <span class="text-xs text-gray-400 dark:text-gray-500 bg-gray-200 dark:bg-gray-600 px-1.5 py-0.5 rounded"
+                      x-text="item.type === 'list' ? '리스트' : '텍스트'"></span>
+                <button @click="removeExtraItem(item.key)"
+                        class="text-red-400 hover:text-red-600 text-xs">✕</button>
+              </div>
+            </template>
+          </div>
+          <!-- 새 항목 추가 -->
+          <div class="flex items-center gap-2 mb-3">
+            <input x-model="newExtraItem.label" type="text" placeholder="항목명 (예: 고객 특이사항)"
+                   @keydown.enter="addExtraItem()"
+                   class="flex-1 text-sm border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 bg-white dark:bg-gray-700 dark:text-gray-100">
+            <select x-model="newExtraItem.type"
+                    class="text-sm border border-gray-300 dark:border-gray-600 rounded-lg px-2 py-2 bg-white dark:bg-gray-700 dark:text-gray-100">
+              <option value="list">리스트</option>
+              <option value="text">텍스트</option>
+            </select>
+            <button @click="addExtraItem()"
+                    class="text-sm bg-gray-700 hover:bg-gray-900 dark:bg-gray-600 dark:hover:bg-gray-500 text-white px-3 py-2 rounded-lg">
+              + 추가
+            </button>
+          </div>
+          <div x-show="extraItemsError" x-cloak class="text-xs text-red-500 mb-2" x-text="extraItemsError"></div>
+          <div class="flex items-center gap-3">
+            <button @click="saveExtraItems()"
+                    :disabled="extraItemsSaving"
+                    class="text-sm bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg disabled:bg-gray-300">
+              <span x-show="!extraItemsSaving">💾 저장</span>
+              <span x-show="extraItemsSaving" x-cloak>저장 중...</span>
+            </button>
+            <span x-show="extraItemsSaved" x-cloak class="text-xs text-emerald-600 dark:text-emerald-400">✅ 저장됨</span>
+          </div>
+        </section>
+
+        <!-- 팔로업 템플릿 -->
+        <section class="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 p-5">
+          <div class="flex items-center justify-between mb-1">
+            <h2 class="text-base font-semibold">📬 팔로업 템플릿</h2>
+            <div class="flex gap-2">
+              <!-- ⑫ v3.5.0: 기본 템플릿 추가 -->
+              <button @click="seedDefaultFollowup()" :disabled="seedingFollowup"
+                      class="text-sm border border-blue-300 dark:border-blue-600 text-blue-700 dark:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-900/30 px-3 py-1.5 rounded-lg disabled:opacity-50">
+                <span x-show="!seedingFollowup">📚 기본 템플릿 추가</span>
+                <span x-show="seedingFollowup" x-cloak>추가 중...</span>
+              </button>
+              <button @click="openNewFollowup()"
+                      class="text-sm bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg">
+                + 새 템플릿
+              </button>
+            </div>
+          </div>
+          <p class="text-sm text-gray-500 dark:text-gray-400 mb-1">
+            상담 후 고객에게 보내는 메시지 초안을 관리합니다.
+          </p>
+          <p class="text-xs text-gray-400 dark:text-gray-500 mb-4">
+            사용 가능한 변수: <code class="bg-gray-100 dark:bg-gray-700 px-1 rounded">{{고객명}}</code>
+            <code class="bg-gray-100 dark:bg-gray-700 px-1 rounded">{{담당자}}</code>
+            <code class="bg-gray-100 dark:bg-gray-700 px-1 rounded">{{매장명}}</code>
+            <code class="bg-gray-100 dark:bg-gray-700 px-1 rounded">{{날짜}}</code>
+            <code class="bg-gray-100 dark:bg-gray-700 px-1 rounded">{{분석요약}}</code>
+          </p>
+          <!-- 필터 -->
+          <div class="flex gap-1 mb-4">
+            <template x-for="f in [{v:'all',l:'전체'},{v:'초도상담',l:'초도'},{v:'디자인미팅',l:'디자인'},{v:'견적미팅',l:'견적'}]" :key="f.v">
+              <button @click="followupFilter = f.v"
+                      :class="followupFilter === f.v
+                        ? 'bg-blue-600 text-white'
+                        : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600'"
+                      class="text-xs px-3 py-1 rounded-full transition-colors" x-text="f.l"></button>
+            </template>
+          </div>
+          <!-- 편집 폼 -->
+          <template x-if="followupEditing">
+            <div class="bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-700 rounded-xl p-4 mb-4 space-y-3">
+              <div class="flex gap-2">
+                <select x-model="followupEditing.meeting_type"
+                        class="text-sm border border-gray-300 dark:border-gray-600 rounded-lg px-2 py-1.5 bg-white dark:bg-gray-700 dark:text-gray-100">
+                  <option value="초도상담">초도상담</option>
+                  <option value="디자인미팅">디자인미팅</option>
+                  <option value="견적미팅">견적미팅</option>
+                  <option value="all">공통 (전체)</option>
+                </select>
+                <input x-model="followupEditing.title" type="text" placeholder="템플릿 제목"
+                       class="flex-1 text-sm border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-1.5 bg-white dark:bg-gray-700 dark:text-gray-100">
+              </div>
+              <textarea x-model="followupEditing.content" rows="6" placeholder="메시지 내용..."
+                        class="w-full text-sm border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 bg-white dark:bg-gray-700 dark:text-gray-100 resize-y"></textarea>
+              <div x-show="followupError" x-cloak class="text-xs text-red-500" x-text="followupError"></div>
+              <div class="flex gap-2">
+                <button @click="saveFollowup()" :disabled="followupSaving"
+                        class="text-sm bg-blue-600 hover:bg-blue-700 text-white px-4 py-1.5 rounded-lg disabled:bg-gray-300">
+                  <span x-show="!followupSaving">💾 저장</span>
+                  <span x-show="followupSaving" x-cloak>저장 중...</span>
+                </button>
+                <button @click="cancelFollowup()"
+                        class="text-sm text-gray-600 hover:text-gray-800 dark:text-gray-300 px-3 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600">
+                  취소
+                </button>
+              </div>
+            </div>
+          </template>
+          <!-- 목록 -->
+          <div class="space-y-3">
+            <template x-if="filteredFollowup.length === 0">
+              <p class="text-sm text-gray-400 dark:text-gray-500 italic py-4 text-center">
+                템플릿이 없습니다. "+ 새 템플릿" 으로 추가하세요.
+              </p>
+            </template>
+            <template x-for="t in filteredFollowup" :key="t.id">
+              <div class="border border-gray-200 dark:border-gray-700 rounded-xl p-4">
+                <div class="flex items-start justify-between mb-1.5">
+                  <div>
+                    <span class="text-xs bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 px-1.5 py-0.5 rounded mr-2"
+                          x-text="t.meeting_type === 'all' ? '공통' : t.meeting_type"></span>
+                    <span class="text-sm font-medium dark:text-gray-100" x-text="t.title"></span>
+                  </div>
+                  <div class="flex gap-1.5 ml-2 flex-shrink-0">
+                    <button @click="copyFollowup(t)"
+                            class="text-xs text-blue-600 hover:text-blue-800 dark:text-blue-400 px-2 py-1 rounded border border-blue-200 dark:border-blue-700">
+                      📋 복사
+                    </button>
+                    <button @click="openEditFollowup(t)"
+                            class="text-xs text-gray-600 hover:text-gray-800 dark:text-gray-300 px-2 py-1 rounded border border-gray-300 dark:border-gray-600">
+                      ✏️ 편집
+                    </button>
+                    <button @click="deleteFollowup(t.id)"
+                            class="text-xs text-red-500 hover:text-red-700 px-2 py-1 rounded border border-red-200 dark:border-red-700">
+                      삭제
+                    </button>
+                  </div>
+                </div>
+                <pre class="text-xs text-gray-600 dark:text-gray-400 whitespace-pre-wrap font-sans line-clamp-3 leading-relaxed"
+                     x-text="t.content"></pre>
+              </div>
+            </template>
+          </div>
+        </section>
+
+      </div>
+    </template>
+
+    <!-- ============ v3.0.0 Phase 2: 사용자 관리 (마스터 전용) ============ -->
+    <template x-if="currentTab === 'users' && authUser && authUser.role === 'master'">
+      <div class="space-y-4">
+
+        <!-- ============ v3.5.3: 중앙 계정 관리 (Auth Server) ============ -->
+        <section class="bg-gradient-to-br from-indigo-50 to-blue-50 dark:from-indigo-950/30 dark:to-blue-950/30 rounded-xl border border-indigo-200 dark:border-indigo-800 p-5">
+          <div class="flex items-center justify-between mb-2">
+            <h2 class="text-base font-semibold flex items-center gap-2 dark:text-gray-100">
+              <span>🔐</span> 중앙 계정 관리
+              <span class="text-xs bg-indigo-200 dark:bg-indigo-800 text-indigo-800 dark:text-indigo-200 px-2 py-0.5 rounded">마스터 전용</span>
+            </h2>
+          </div>
+          <p class="text-sm text-gray-600 dark:text-gray-400 mb-4">
+            데스크톱 한 곳에서 모든 PC 의 계정을 관리합니다. 노트북에서 가입 신청 → 데스크톱에서 승인 →
+            노트북에서 그 계정으로 로그인 가능. <strong>한 PC 가 서버, 다른 PC 들은 클라이언트</strong>로 동작.
+          </p>
+
+          <!-- 모드 1: 이 PC 를 서버로 사용 (보통 데스크톱) -->
+          <div class="bg-white/70 dark:bg-gray-800/40 rounded-lg p-4 mb-3">
+            <label class="flex items-start gap-3 cursor-pointer">
+              <input type="checkbox" x-model="authServer.serverEnabled" @change="toggleAuthServer()"
+                     class="mt-1 w-5 h-5"/>
+              <div class="flex-1">
+                <div class="font-medium dark:text-gray-100">🖥 이 PC 를 계정 관리 서버로 사용</div>
+                <div class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                  데스크톱(항상 켜둘 PC) 에서 활성화하세요. 다른 PC 가 이 PC 의 계정을 사용합니다.
+                </div>
+              </div>
+            </label>
+            <div x-show="authServer.serverEnabled && authServer.serverApiKey" x-cloak class="mt-3 ml-8 space-y-3">
+              <!-- URL 안내 -->
+              <div x-show="authServer.serverUrlHint" x-cloak>
+                <div class="text-xs text-gray-500 dark:text-gray-400 mb-1">노트북에 입력할 URL (이 PC 의 LAN IP):</div>
+                <div class="flex gap-2">
+                  <input type="text" :value="authServer.serverUrlHint" readonly
+                         class="flex-1 text-xs font-mono bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded px-2 py-1.5 dark:text-gray-100"/>
+                  <button @click="copyText(authServer.serverUrlHint)"
+                          class="text-xs bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded">📋 복사</button>
+                </div>
+                <div class="text-[10px] text-amber-700 dark:text-amber-400 mt-1">
+                  ⚠ 외부(매장)에서 접속하려면 위 IP 를 <strong>Tailscale IP (100.x.x.x)</strong>로 바꿔서 노트북에 입력하세요.
+                </div>
+              </div>
+              <!-- API 키 -->
+              <div>
+                <div class="text-xs text-gray-500 dark:text-gray-400 mb-1">노트북에 입력할 API 키:</div>
+                <div class="flex gap-2">
+                  <input type="text" :value="authServer.serverApiKey" readonly
+                         class="flex-1 text-xs font-mono bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded px-2 py-1.5 dark:text-gray-100"/>
+                  <button @click="copyAuthServerKey()"
+                          class="text-xs bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded">📋 복사</button>
+                  <button @click="regenerateAuthServerKey()"
+                          class="text-xs bg-amber-600 hover:bg-amber-700 text-white px-3 py-1.5 rounded">🔄 새로 발급</button>
+                </div>
+                <div x-show="authServer.copiedToast" x-cloak class="text-xs text-emerald-600 dark:text-emerald-400 mt-1">✅ 복사됨</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 모드 2: 원격 서버 사용 (보통 노트북) -->
+          <div class="bg-white/70 dark:bg-gray-800/40 rounded-lg p-4">
+            <div class="font-medium dark:text-gray-100 mb-1">🔌 원격 계정 서버 사용 (이 PC 가 클라이언트)</div>
+            <div class="text-xs text-gray-500 dark:text-gray-400 mb-3">
+              노트북·다른 PC 에서 활성화하세요. 데스크톱의 계정으로 로그인할 수 있게 됩니다.
+            </div>
+            <div class="space-y-2">
+              <input x-model="authServer.clientUrl" type="text"
+                     placeholder="http://100.64.1.5:[InterioNote 포트] (Tailscale IP)"
+                     class="w-full text-sm border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 bg-white dark:bg-gray-700 dark:text-gray-100 font-mono"/>
+              <input x-model="authServer.clientApiKey" type="text"
+                     placeholder="데스크톱에서 복사한 API 키 붙여넣기"
+                     class="w-full text-sm border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 bg-white dark:bg-gray-700 dark:text-gray-100 font-mono"/>
+              <div class="flex gap-2">
+                <button @click="testAuthServer()" :disabled="authServer.busy"
+                        class="text-sm bg-gray-700 hover:bg-gray-900 dark:bg-gray-600 text-white px-3 py-2 rounded-lg disabled:opacity-50 whitespace-nowrap">
+                  <span x-show="!authServer.busy">🔌 연결 테스트</span>
+                  <span x-show="authServer.busy" x-cloak>⏳</span>
+                </button>
+                <button @click="saveAuthServerClient()" :disabled="authServer.busy"
+                        class="text-sm bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg disabled:opacity-50">저장</button>
+                <button x-show="authServer.clientConfigured" x-cloak
+                        @click="clearAuthServerClient()"
+                        class="text-sm text-red-500 hover:text-red-700 px-2 py-2">🗑 제거</button>
+              </div>
+              <div x-show="authServer.msg" x-cloak class="text-sm p-2 rounded"
+                   :class="authServer.state === 'ok' ? 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-800 dark:text-emerald-200' :
+                          authServer.state === 'fail' ? 'bg-red-50 dark:bg-red-900/20 text-red-800 dark:text-red-200' :
+                          'bg-gray-50 dark:bg-gray-700/30 text-gray-700 dark:text-gray-300'"
+                   x-html="authServer.msg"></div>
+              <div x-show="authServer.clientConfigured" x-cloak
+                   class="text-xs text-emerald-700 dark:text-emerald-300 mt-1">
+                ✅ 원격 서버 사용 중 — 아래 사용자 목록은 데스크톱 데이터 기준으로 표시됩니다.
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- v3.3.0 Phase 5: 가입 승인 대기 섹션 -->
+        <section x-show="pendingUsers.length > 0" x-cloak
+                 class="bg-amber-50 dark:bg-amber-900/20 rounded-xl border border-amber-200 dark:border-amber-700 p-5">
+          <h2 class="font-semibold flex items-center gap-2 mb-4 text-amber-800 dark:text-amber-300">
+            <span>🕐</span>
+            가입 승인 대기
+            <span class="ml-1 px-2 py-0.5 rounded-full text-xs font-bold bg-red-500 text-white"
+                  x-text="pendingUsers.length + '명'"></span>
+          </h2>
+          <div class="space-y-2">
+            <template x-for="pu in pendingUsers" :key="pu.id">
+              <div class="flex items-center justify-between gap-3 bg-white dark:bg-gray-800
+                          border border-amber-200 dark:border-amber-700 rounded-lg px-4 py-3">
+                <div class="flex items-center gap-3 min-w-0">
+                  <div class="w-8 h-8 rounded-full bg-amber-100 dark:bg-amber-900/40
+                              flex items-center justify-center text-sm font-bold
+                              text-amber-700 dark:text-amber-300 shrink-0"
+                       x-text="(pu.display_name || '?')[0]"></div>
+                  <div class="min-w-0">
+                    <div class="flex items-center gap-2 flex-wrap">
+                      <span class="font-medium text-sm dark:text-gray-100" x-text="pu.display_name"></span>
+                      <code class="text-[11px] text-gray-500 dark:text-gray-400
+                                   bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded"
+                            x-text="pu.username"></code>
+                    </div>
+                    <div class="text-[11px] text-gray-400 dark:text-gray-500 mt-0.5"
+                         x-text="'신청: ' + (pu.created_at || '').slice(0, 10)"></div>
+                  </div>
+                </div>
+                <div class="flex items-center gap-2 shrink-0">
+                  <button @click="approveUser(pu)"
+                          class="px-3 py-1.5 text-xs font-medium bg-emerald-600 hover:bg-emerald-700
+                                 text-white rounded-lg transition">
+                    ✅ 승인
+                  </button>
+                  <button @click="rejectUser(pu)"
+                          class="px-3 py-1.5 text-xs font-medium border border-red-300 dark:border-red-700
+                                 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20
+                                 rounded-lg transition">
+                    거절
+                  </button>
+                </div>
+              </div>
+            </template>
+          </div>
+        </section>
+
+        <!-- 비밀번호 변경 (본인) -->
+        <section class="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5">
+          <h2 class="font-semibold flex items-center gap-2 mb-4 dark:text-gray-100">
+            <span>🔑</span> 내 비밀번호 변경
+          </h2>
+          <div class="space-y-3 max-w-sm">
+            <div>
+              <label class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">현재 비밀번호</label>
+              <input type="password" x-model="pwdForm.current" placeholder="현재 비밀번호"
+                     class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg
+                            bg-white dark:bg-gray-700 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            </div>
+            <div>
+              <label class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">새 비밀번호</label>
+              <input type="password" x-model="pwdForm.next" placeholder="새 비밀번호 (4자 이상)"
+                     class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg
+                            bg-white dark:bg-gray-700 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            </div>
+            <div>
+              <label class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">새 비밀번호 확인</label>
+              <input type="password" x-model="pwdForm.confirm" placeholder="새 비밀번호 다시 입력"
+                     class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg
+                            bg-white dark:bg-gray-700 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            </div>
+            <div x-show="pwdError" x-cloak class="text-sm text-red-600 dark:text-red-400" x-text="pwdError"></div>
+            <div x-show="pwdSuccess" x-cloak class="text-sm text-emerald-600 dark:text-emerald-400" x-text="pwdSuccess"></div>
+            <button @click="changeMyPassword()" :disabled="savingPwd"
+                    class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-lg disabled:bg-gray-300">
+              <span x-show="!savingPwd">비밀번호 변경</span>
+              <span x-show="savingPwd" x-cloak>변경 중...</span>
+            </button>
+          </div>
+        </section>
+
+        <!-- 사용자 목록 -->
+        <section class="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5">
+          <div class="flex items-center justify-between mb-4">
+            <h2 class="font-semibold flex items-center gap-2 dark:text-gray-100">
+              <span>👥</span> 계정 목록
+              <span class="text-xs text-gray-500 dark:text-gray-400 font-normal"
+                    x-text="`(${userList.length}개)`"></span>
+            </h2>
+            <button @click="showNewUserForm = !showNewUserForm; newUserError = ''; newUserSuccess = '';"
+                    class="flex items-center gap-1 px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded-lg">
+              <span x-text="showNewUserForm ? '✕ 닫기' : '＋ 새 계정 추가'"></span>
+            </button>
+          </div>
+
+          <!-- 새 계정 추가 폼 -->
+          <div x-show="showNewUserForm" x-cloak
+               class="mb-4 p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded-lg space-y-3">
+            <div class="text-sm font-medium text-blue-800 dark:text-blue-300 mb-2">새 계정 정보</div>
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">아이디 (영문·숫자·_)</label>
+                <input x-model="newUser.username" type="text" placeholder="예: user01"
+                       class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg
+                              bg-white dark:bg-gray-700 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">표시 이름</label>
+                <input x-model="newUser.display_name" type="text" placeholder="예: 홍길동"
+                       class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg
+                              bg-white dark:bg-gray-700 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">비밀번호</label>
+                <input x-model="newUser.password" type="password" placeholder="4자 이상"
+                       class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg
+                              bg-white dark:bg-gray-700 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">역할</label>
+                <select x-model="newUser.role"
+                        class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg
+                               bg-white dark:bg-gray-700 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                  <option value="user">일반 사용자</option>
+                  <option value="master">마스터</option>
+                </select>
+              </div>
+            </div>
+            <div x-show="newUserError" x-cloak class="text-sm text-red-600 dark:text-red-400" x-text="newUserError"></div>
+            <div x-show="newUserSuccess" x-cloak class="text-sm text-emerald-600 dark:text-emerald-400" x-text="newUserSuccess"></div>
+            <button @click="createNewUser()" :disabled="savingNewUser"
+                    class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-lg disabled:bg-gray-300">
+              <span x-show="!savingNewUser">계정 생성</span>
+              <span x-show="savingNewUser" x-cloak>생성 중...</span>
+            </button>
+          </div>
+
+          <!-- 사용자 테이블 -->
+          <div class="space-y-2">
+            <template x-for="user in userList" :key="user.id">
+              <div class="border border-gray-200 dark:border-gray-600 rounded-lg p-3">
+
+                <!-- 일반 보기 모드 -->
+                <template x-if="editingUserId !== user.id">
+                  <div class="flex items-center justify-between gap-3">
+                    <div class="flex items-center gap-3 min-w-0">
+                      <div class="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold shrink-0"
+                           :class="user.role === 'master'
+                             ? 'bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300'
+                             : 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300'"
+                           x-text="(user.display_name || '?')[0]"></div>
+                      <div class="min-w-0">
+                        <div class="flex items-center gap-2 flex-wrap">
+                          <span class="font-medium text-sm dark:text-gray-100" x-text="user.display_name"></span>
+                          <code class="text-[11px] text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded"
+                                x-text="user.username"></code>
+                          <span class="text-[10px] px-1.5 py-0.5 rounded-full font-medium"
+                                :class="user.role === 'master'
+                                  ? 'bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300'
+                                  : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400'"
+                                x-text="user.role === 'master' ? '마스터' : '일반'"></span>
+                          <span x-show="!user.is_active" x-cloak
+                                class="text-[10px] px-1.5 py-0.5 rounded-full bg-red-100 dark:bg-red-900/40 text-red-600 dark:text-red-400">비활성</span>
+                        </div>
+                        <div class="text-[11px] text-gray-400 dark:text-gray-500 mt-0.5"
+                             x-text="'가입: ' + (user.created_at || '').slice(0, 10)"></div>
+                      </div>
+                    </div>
+                    <div class="flex items-center gap-1.5 shrink-0">
+                      <button @click="startEditUser(user)"
+                              class="px-2.5 py-1 text-xs border border-gray-300 dark:border-gray-600
+                                     hover:bg-gray-50 dark:hover:bg-gray-700 dark:text-gray-200 rounded transition">
+                        ✏️ 편집
+                      </button>
+                      <button x-show="user.role !== 'master'"
+                              @click="deleteUser(user)"
+                              class="px-2.5 py-1 text-xs border border-red-200 dark:border-red-700
+                                     text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition">
+                        삭제
+                      </button>
+                    </div>
+                  </div>
+                </template>
+
+                <!-- 편집 모드 -->
+                <template x-if="editingUserId === user.id">
+                  <div class="space-y-3">
+                    <div class="text-sm font-medium text-gray-700 dark:text-gray-300">
+                      ✏️ <span x-text="user.username"></span> 계정 편집
+                    </div>
+                    <div class="grid grid-cols-2 gap-3">
+                      <div>
+                        <label class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">표시 이름</label>
+                        <input x-model="editUserForm.display_name" type="text"
+                               class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg
+                                      bg-white dark:bg-gray-700 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                      </div>
+                      <div>
+                        <label class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">역할</label>
+                        <select x-model="editUserForm.role"
+                                class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg
+                                       bg-white dark:bg-gray-700 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                          <option value="user">일반 사용자</option>
+                          <option value="master">마스터</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">새 비밀번호 (선택)</label>
+                        <input x-model="editUserForm.password" type="password" placeholder="변경하려면 입력"
+                               class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg
+                                      bg-white dark:bg-gray-700 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                      </div>
+                      <div class="flex items-end">
+                        <label class="flex items-center gap-2 text-sm dark:text-gray-200 cursor-pointer">
+                          <input type="checkbox" x-model="editUserForm.is_active"
+                                 class="rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
+                          계정 활성화
+                        </label>
+                      </div>
+                    </div>
+                    <div x-show="editError" x-cloak class="text-sm text-red-600 dark:text-red-400" x-text="editError"></div>
+                    <div class="flex gap-2">
+                      <button @click="saveEditUser(user.id)" :disabled="savingEdit"
+                              class="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-lg disabled:bg-gray-300">
+                        <span x-show="!savingEdit">저장</span>
+                        <span x-show="savingEdit" x-cloak>저장 중...</span>
+                      </button>
+                      <button @click="cancelEditUser()"
+                              class="px-3 py-1.5 border border-gray-300 dark:border-gray-600 text-sm dark:text-gray-200 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700">
+                        취소
+                      </button>
+                    </div>
+                  </div>
+                </template>
+
+              </div>
+            </template>
+
+            <div x-show="userList.length === 0" x-cloak
+                 class="text-center py-6 text-sm text-gray-500 dark:text-gray-400">
+              등록된 계정이 없습니다.
+            </div>
+          </div>
+        </section>
+
+        <!-- 로그아웃 -->
+        <section class="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5">
+          <h2 class="font-semibold flex items-center gap-2 mb-3 dark:text-gray-100">
+            <span>🚪</span> 로그아웃
+          </h2>
+          <p class="text-sm text-gray-600 dark:text-gray-400 mb-3">
+            현재 로그인 계정: <strong x-text="authUser ? authUser.display_name + ' (' + authUser.username + ')' : ''"></strong>
+          </p>
+          <button @click="window.logoutUser()"
+                  class="px-4 py-2 border border-red-300 dark:border-red-700 text-red-600 dark:text-red-400
+                         hover:bg-red-50 dark:hover:bg-red-900/20 text-sm rounded-lg transition">
+            🚪 로그아웃
+          </button>
+        </section>
+
+      </div>
+    </template>
+
   </main>
 </div>
 
@@ -415,8 +2031,63 @@
 function settingsPage() {
   return {
     loading: true,
+
+    // v2.5.0: 탭 + 다크모드
+    currentTab: 'general',
+    tabs: [
+      {key: 'general',  icon: '⚙️', label: '일반'},
+      {key: 'folders',  icon: '📁', label: '사용자 폴더'},
+      {key: 'asr',      icon: '🎙', label: '음성 인식'},
+      {key: 'keywords', icon: '📝', label: '키워드'},
+      {key: 'ojt',      icon: '📊', label: 'OJT 연동'},
+      {key: 'quote',    icon: '💰', label: '견적서 양식'},
+      {key: 'replies',  icon: '💬', label: '답변 템플릿'},
+      {key: 'shortcuts', icon: '⌨️', label: '단축키'},
+      {key: 'ai',       icon: '🤖', label: 'AI 분석'},
+      {key: 'users',    icon: '👥', label: '사용자 관리', masterOnly: true},
+    ],
+    // v3.0.0 Phase 2: 마스터 전용 탭 필터
+    get filteredTabs() {
+      const u = window.getAuthUser ? window.getAuthUser() : null;
+      const isMaster = u && u.role === 'master';
+      return this.tabs.filter(t => !t.masterOnly || isMaster);
+    },
+    // v3.5.2: 마스터 여부 (원격 Ollama 섹션 표시 조건)
+    get isMaster() {
+      const u = window.getAuthUser ? window.getAuthUser() : null;
+      return !!(u && u.role === 'master');
+    },
+    // v3.5.2: 원격 데스크톱 Ollama 상태
+    ollamaRemoteUrl: '',          // 현재 저장된 URL (서버에서 로드)
+    ollamaRemoteUrlInput: '',     // 입력란 값
+    ollamaRemoteState: 'unknown', // 'ok' | 'fail' | 'unknown'
+    ollamaRemoteMsg: '',          // 결과 메시지 (HTML)
+    ollamaRemoteBusy: false,
+
+    // v3.5.3: 중앙 계정 관리 (Auth Server) 상태
+    authServer: {
+      serverEnabled: false,    // 이 PC 가 서버
+      serverApiKey: '',
+      serverUrlHint: '',       // 노트북에 알려줄 URL 힌트 (이 PC 의 LAN IP:port)
+      clientUrl: '',           // 이 PC 가 클라이언트 (서버 URL)
+      clientApiKey: '',
+      clientConfigured: false,
+      state: 'unknown',
+      msg: '',
+      busy: false,
+      copiedToast: false,
+    },
+    theme: 'system',  // 'light' | 'dark' | 'system'
+    keymap: {
+      label_me:    {key: '1',       desc: '카드를 "나" 라벨로 설정'},
+      label_client:{key: '2',       desc: '카드를 "고객" 라벨로 설정'},
+      label_clear: {key: '0',       desc: '카드 라벨 지우기'},
+      help:        {key: 'F1',      desc: '단축키 도움말 열기/닫기'},
+      search_open: {key: '/ 또는 F3', desc: '카드 검색 열기 (녹음 중·완료 화면)'},
+      esc:         {key: 'Esc',     desc: '검색·도움말·편집 닫기'},
+    },
     settings: {
-      whisper: { model_size: 'small', beam_size: 5, interior_vocab: '', model_choices: [], default_interior_vocab: '' },
+      whisper: { model_size: 'small', beam_size: 5, device: 'auto', device_choices: ['auto','cpu','cuda'], interior_vocab: '', model_choices: [], default_interior_vocab: '' },
       noise: { suppression_enabled: false },
       vad: { threshold: 0.5 },
       paths: { client_root: '', client_root_exists: false, folder_template: [], required_folder: '상담기록', default_folder_template: [] },
@@ -434,21 +2105,1308 @@ function settingsPage() {
     appVersion: '?',
     checkingUpdate: false,
     updateResult: null,
+
+    // Phase 8D: 빠른 업데이트
+    quickUpdateState: 'idle',  // idle | running | error
+    quickUpdateError: '',
     dataPaths: {},
     whisperResult: {},
     toast: { show: false, msg: '', kind: 'ok' },
     noiseModuleReady: false,   // Phase 5B 가 적용되면 true 로 (현재는 항상 false)
 
+    // Phase 8C: recommended 플래그는 init() 의 applySpecs() 에서 사용자 PC 사양에 맞춰 동적으로 설정됨
     modelOptions: [
-      { size: 'tiny',     label: '경량 (Tiny)',   size_mb: 75,  cpu: '매우 낮음', desc: '빠르고 가볍지만 한국어 정확도 낮음. 저사양 PC 또는 시연용.' },
-      { size: 'base',     label: '기본 (Base)',    size_mb: 140, cpu: '낮음',     desc: '한국어 정확도가 부족. 매장 환경 비추천.' },
-      { size: 'small',    label: '추천 (Small)',   size_mb: 460, cpu: '중간',     desc: '한국어 정확도와 속도 균형. 일반 노트북에 권장.', recommended: true },
-      { size: 'medium',   label: '정밀 (Medium)',  size_mb: 1500, cpu: '높음',    desc: '정확도 매우 좋음. 실시간이 약간 느려질 수 있음. RAM 8GB+ 필요.' },
+      { size: 'tiny',     label: '경량 (Tiny)',     size_mb: 75,   cpu: '매우 낮음', desc: '빠르고 가볍지만 한국어 정확도 낮음. 저사양 PC 또는 시연용.' },
+      { size: 'base',     label: '기본 (Base)',     size_mb: 140,  cpu: '낮음',     desc: '한국어 정확도가 부족. 매장 환경 비추천.' },
+      { size: 'small',    label: '표준 (Small)',    size_mb: 460,  cpu: '중간',     desc: '한국어 정확도와 속도 균형. 일반 노트북에 권장.' },
+      { size: 'medium',   label: '정밀 (Medium)',   size_mb: 1500, cpu: '높음',     desc: '정확도 매우 좋음. 실시간이 약간 느려질 수 있음. RAM 8GB+ 필요.' },
       { size: 'large-v3', label: '최고 (Large-v3)', size_mb: 3000, cpu: '매우 높음', desc: '최고 정확도. CPU 환경에서는 실시간 어려움. 사후 분석용.' },
     ],
 
+    // Phase 8C: 시스템 사양 + 추천
+    systemSpecs: null,   // {cpu_cores, ram_gb, gpu, recommendation}
+
+    // v2.5.6 O2: Ollama 가용성 (헤더 배지 + AI 분석 가용성 섹션)
+    ollamaState: 'checking',   // checking | ok | no_ollama | no_model
+    ollamaInfo: null,
+
+    // v2.6.0 JJ: OJT 연동
+    ojtConfigured: false,
+    ojtFilePath: '',
+    ojtSheetName: '',
+    ojtStartRow: 2,
+    ojtMapping: {},      // {field_key: 'C' (column letter) or '' }
+    ojtAnalysis: null,   // analyze 결과
+    ojtFieldKeys: [],
+    ojtFieldLabels: {},
+    ojtPicking: false,
+    ojtFileError: '',
+    ojtSaving: false,
+    ojtSaveResult: '',  // 'saved' | ''
+    ojtSaveError: '',
+
+    // v2.7.0 Q: 빠른 답변 템플릿
+    quickReplies: [],
+    qrEditing: null,    // null | {id?, title, content, category}
+    qrSaveError: '',
+    qrCopyToast: '',
+
+    // v2.7.0 U: 수동 백업
+    backupRunning: false,
+    backupResult: null,  // {ok, path, size_bytes, files_count}
+    backupError: '',
+
+    // v2.8.0 FF: 견적서 양식
+    quoteConfigured: false,
+    quoteTemplatePath: '',
+    quoteTemplateName: '',
+    quoteDesignerName: '',
+    quoteMapping: {},   // {field_key: {sheet, cell}}
+    quoteAnalysis: null,
+    quotePreviewSheet: '',
+    quoteFieldKeys: [],
+    quoteFieldLabels: {},
+    quotePicking: false,
+    quoteFileError: '',
+    quoteSaving: false,
+    quoteSaveResult: '',
+    quoteSaveError: '',
+    quoteActiveMappingKey: '',   // 현재 셀 클릭으로 매핑 중인 필드 키
+
+    // v3.0.0: 담당자 정보
+    designerName: '',
+    designerStore: '',
+    designerPhone: '',
+    savingDesigner: false,
+    designerSaved: false,
+    designerSaveError: '',
+
+    // ⑳ v3.5.0: 다중 PC 동기화 가이드 접기/펼치기
+    showSyncGuide: false,
+
+    // v3.0.0 Phase 2: 사용자 관리 (마스터 전용)
+    authUser: null,         // 현재 로그인 사용자 (window.getAuthUser() 결과)
+    showPwdSection: false,  // 일반 탭 비밀번호 변경 접기/펼치기
+    userList: [],
+    pendingUsers: [],       // v3.3.0 Phase 5: 승인 대기 사용자 목록
+    newUser: { username: '', display_name: '', password: '', role: 'user' },
+    savingNewUser: false,
+    newUserError: '',
+    newUserSuccess: '',
+    showNewUserForm: false,
+    editingUserId: null,    // 인라인 편집 중인 사용자 ID
+    editUserForm: { display_name: '', role: 'user', is_active: true, password: '' },
+    savingEdit: false,
+    editError: '',
+    // 비밀번호 변경 (본인)
+    pwdForm: { current: '', next: '', confirm: '' },
+    savingPwd: false,
+    pwdError: '',
+    pwdSuccess: '',
+
+    // v3.0.0 Phase 3: AI 분석 탭
+    ollamaModels: [],           // 설치된 모델 목록 (Ollama /api/tags)
+    ollamaModelLoading: false,
+    ollamaModelSaved: false,
+    ollamaModelError: '',
+    selectedOllamaModel: '',    // UI 선택값 (저장 전)
+    _ollamaModelUserChanged: false,  // v3.3.0: 사용자가 드롭다운 변경했는지 추적
+    // 분석 추가 항목
+    aiMeetingType: '초도상담', // 현재 선택된 탭
+    extraItems: {},             // {초도상담: [...], 디자인미팅: [...], 견적미팅: [...]}
+    extraItemsSaving: false,
+    extraItemsSaved: false,
+    extraItemsError: '',
+    newExtraItem: { label: '', type: 'list' },
+    // 팔로업 템플릿
+    followupTemplates: [],
+    followupFilter: 'all',      // 'all'|'초도상담'|'디자인미팅'|'견적미팅'
+    followupEditing: null,      // null | {id?, meeting_type, title, content, sort_order}
+    followupSaving: false,
+    followupError: '',
+    seedingFollowup: false,     // ⑫ v3.5.0: 기본 템플릿 추가 중 플래그
+
     async init() {
+      // v2.5.0: theme 초기 로드 (UI 가 즉시 반영)
+      try {
+        this.theme = localStorage.getItem('interionote.theme') || 'system';
+      } catch(e) { this.theme = 'system'; }
+      this._applyTheme();
+      // 사양 감지는 설정 로드와 병렬로 (느려도 UI 차단 없음)
+      this.loadSystemSpecs();
+      // v2.5.6: Ollama 가용성도 백그라운드 체크
+      this.checkOllamaHealth();
+      // v2.6.0: OJT 필드 목록 + 현재 설정 로드
+      this.loadOjtFields();
+      this.loadOjtConfig();
+      // v2.7.0: 빠른 답변 템플릿 로드
+      this.loadQuickReplies();
+      // v2.8.0 FF: 견적서 양식 로드
+      this.loadQuoteFields();
+      this.loadQuoteConfig();
+      // v3.0.0: 담당자 정보 로드
+      this.loadDesignerInfo();
+      // v3.0.0 Phase 2: 로그인 사용자 정보 + 사용자 목록
+      this.authUser = window.getAuthUser ? window.getAuthUser() : null;
+      if (this.authUser && this.authUser.role === 'master') {
+        this.loadUsers();
+      }
+      // v3.0.0 Phase 3: AI 분석 탭 초기화
+      // v3.3.0: load() 먼저 완료 후 selectedOllamaModel 설정 (race-condition 방지)
+      this.loadFollowupTemplates();
       await this.load();
+      // load() 완료 후 extra_items + ollama 모델 반영
+      this.extraItems = (this.settings.analysis && this.settings.analysis.extra_items) || {};
+      this.selectedOllamaModel = (this.settings.ollama && this.settings.ollama.model) || 'qwen2.5:3b';
+      // 모델 목록 로드 (load() 후에 실행해야 selectedOllamaModel 이 안전하게 유지됨)
+      this.loadOllamaModels();
+      // v3.5.2: 마스터 본인의 원격 Ollama URL 로드
+      if (this.isMaster) {
+        this.loadOllamaRemote();
+        // v3.5.3: Auth Server 상태 로드
+        this.loadAuthServerState();
+      }
+    },
+
+    // ===== v3.0.0: 담당자 정보 =====
+    async loadDesignerInfo() {
+      try {
+        const r = await fetch('/api/settings/designer');
+        if (!r.ok) return;
+        const data = await r.json();
+        this.designerName  = data.name  || '';
+        this.designerStore = data.store || '';
+        this.designerPhone = data.phone || '';
+      } catch (e) { /* ignore */ }
+    },
+    async saveDesignerInfo() {
+      this.savingDesigner = true;
+      this.designerSaved = false;
+      this.designerSaveError = '';
+      try {
+        const r = await fetch('/api/settings/designer', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({
+            name:  this.designerName.trim(),
+            store: this.designerStore.trim(),
+            phone: this.designerPhone.trim(),
+          }),
+        });
+        const data = await r.json();
+        if (!r.ok) { this.designerSaveError = data.detail || '저장 실패'; return; }
+        this.designerSaved = true;
+        setTimeout(() => { this.designerSaved = false; }, 2500);
+      } catch (e) {
+        this.designerSaveError = String(e);
+      } finally {
+        this.savingDesigner = false;
+      }
+    },
+
+    // ===== v3.0.0 Phase 3: AI 분석 탭 =====
+
+    async loadOllamaModels() {
+      this.ollamaModelLoading = true;
+      try {
+        const r = await fetch('/api/ollama/models');
+        if (r.ok) {
+          const d = await r.json();
+          this.ollamaModels = d.models || [];
+          // v3.3.0: 항상 서버 configured_model 로 동기화 (load() 이후 호출되므로 안전)
+          // 단, 사용자가 이미 드롭다운에서 새 값 선택 중이면 유지
+          if (d.configured_model && !this._ollamaModelUserChanged) {
+            this.selectedOllamaModel = d.configured_model;
+          }
+        }
+      } catch(e) {
+        this.ollamaModels = [];
+      } finally {
+        this.ollamaModelLoading = false;
+      }
+    },
+
+    async saveOllamaModel() {
+      this.ollamaModelSaved = false;
+      this.ollamaModelError = '';
+      try {
+        const r = await fetch('/api/settings/ollama-model', {
+          method: 'POST',
+          headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({model: this.selectedOllamaModel}),
+        });
+        const d = await r.json();
+        if (!r.ok) { this.ollamaModelError = d.detail || '저장 실패'; return; }
+        this.ollamaModelSaved = true;
+        this.settings.ollama = this.settings.ollama || {};
+        this.settings.ollama.model = d.model;
+        this._ollamaModelUserChanged = false; // 저장 완료 → 변경 플래그 초기화
+        setTimeout(() => { this.ollamaModelSaved = false; }, 2000);
+      } catch(e) { this.ollamaModelError = String(e); }
+    },
+
+    // ===== v3.5.2: 원격 데스크톱 Ollama (마스터 본인 전용) =====
+    async loadOllamaRemote() {
+      // /api/auth/me 응답에 ollama_remote_url 이 포함됨 → 그것을 가져와 표시
+      try {
+        const r = await fetch('/api/auth/me');
+        if (!r.ok) return;
+        const d = await r.json();
+        this.ollamaRemoteUrl = d.ollama_remote_url || '';
+        this.ollamaRemoteUrlInput = this.ollamaRemoteUrl;
+        if (this.ollamaRemoteUrl) {
+          // 자동 헬스체크는 무거우니 사용자가 명시적으로 테스트하도록 안내만 표시
+          this.ollamaRemoteState = 'unknown';
+          this.ollamaRemoteMsg = '저장된 URL 이 있습니다. 🔌 연결 테스트로 동작 여부를 확인하세요.';
+        }
+      } catch(e) { /* ignore */ }
+    },
+    async testOllamaRemote() {
+      const url = (this.ollamaRemoteUrlInput || '').trim();
+      if (!url) {
+        this.ollamaRemoteState = 'fail';
+        this.ollamaRemoteMsg = '⚠ URL 을 입력하세요.';
+        return;
+      }
+      this.ollamaRemoteBusy = true;
+      this.ollamaRemoteMsg = '연결 시도 중...';
+      try {
+        const r = await fetch('/api/auth/me/ollama-remote/test', {
+          method: 'POST',
+          headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({url}),
+        });
+        const d = await r.json();
+        if (d.ok) {
+          this.ollamaRemoteState = 'ok';
+          const models = (d.models || []).join(', ') || '(없음)';
+          this.ollamaRemoteMsg = `✅ 연결 성공 (${d.latency_ms}ms) — 설치된 모델: <code>${models}</code>`;
+        } else {
+          this.ollamaRemoteState = 'fail';
+          this.ollamaRemoteMsg = `❌ ${d.error || '연결 실패'}`;
+        }
+      } catch(e) {
+        this.ollamaRemoteState = 'fail';
+        this.ollamaRemoteMsg = `❌ ${e.message || e}`;
+      } finally {
+        this.ollamaRemoteBusy = false;
+      }
+    },
+    async saveOllamaRemote() {
+      const url = (this.ollamaRemoteUrlInput || '').trim();
+      this.ollamaRemoteBusy = true;
+      try {
+        const r = await fetch('/api/auth/me/ollama-remote', {
+          method: 'PATCH',
+          headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({url}),
+        });
+        const d = await r.json();
+        if (!r.ok) {
+          this.ollamaRemoteState = 'fail';
+          this.ollamaRemoteMsg = `❌ ${d.detail || '저장 실패'}`;
+          return;
+        }
+        this.ollamaRemoteUrl = d.ollama_remote_url || '';
+        this.ollamaRemoteMsg = `💾 ${d.message}`;
+      } catch(e) {
+        this.ollamaRemoteState = 'fail';
+        this.ollamaRemoteMsg = `❌ ${e.message || e}`;
+      } finally {
+        this.ollamaRemoteBusy = false;
+      }
+    },
+    async clearOllamaRemote() {
+      if (!confirm('원격 데스크톱 사용을 중단하고 노트북의 Ollama 로 복귀합니다. 진행할까요?')) return;
+      this.ollamaRemoteUrlInput = '';
+      await this.saveOllamaRemote();
+      this.ollamaRemoteState = 'unknown';
+    },
+
+    // ===== v3.5.3: 중앙 계정 관리 (Auth Server) =====
+    async loadAuthServerState() {
+      try {
+        const r = await fetch('/api/auth/auth-server/state');
+        if (!r.ok) return;
+        const d = await r.json();
+        this.authServer.serverEnabled = !!d.server_enabled;
+        this.authServer.serverApiKey = d.server_api_key || '';
+        this.authServer.serverUrlHint = d.server_url_hint || '';
+        this.authServer.clientUrl = d.client_url || '';
+        this.authServer.clientConfigured = !!d.client_configured;
+        // API 키는 보안상 서버에서 평문으로 다시 안 줌 → 마스킹만
+        this.authServer.clientApiKey = d.client_api_key_set ? '••••••••(저장됨)' : '';
+      } catch(e) {}
+    },
+    async copyText(text) {
+      try {
+        await navigator.clipboard.writeText(text);
+        this.authServer.copiedToast = true;
+        setTimeout(() => { this.authServer.copiedToast = false; }, 1500);
+      } catch(e) { alert('복사 실패: ' + e); }
+    },
+    async toggleAuthServer() {
+      const enable = this.authServer.serverEnabled;
+      try {
+        const r = await fetch('/api/auth/auth-server/enable-server', {
+          method: 'POST',
+          headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({enabled: enable}),
+        });
+        const d = await r.json();
+        if (!r.ok) {
+          alert(d.detail || '실패');
+          this.authServer.serverEnabled = !enable;  // 롤백
+          return;
+        }
+        this.authServer.serverApiKey = d.server_api_key || '';
+      } catch(e) { alert(e.message || e); }
+    },
+    async copyAuthServerKey() {
+      try {
+        await navigator.clipboard.writeText(this.authServer.serverApiKey);
+        this.authServer.copiedToast = true;
+        setTimeout(() => { this.authServer.copiedToast = false; }, 1500);
+      } catch(e) { alert('복사 실패: ' + e); }
+    },
+    async regenerateAuthServerKey() {
+      if (!confirm('새 API 키를 발급합니다. 이전 키로 연결한 노트북들은 다시 입력해야 합니다. 진행할까요?')) return;
+      try {
+        const r = await fetch('/api/auth/auth-server/regenerate-key', {method: 'POST'});
+        const d = await r.json();
+        if (!r.ok) { alert(d.detail || '실패'); return; }
+        this.authServer.serverApiKey = d.server_api_key;
+      } catch(e) { alert(e.message || e); }
+    },
+    async testAuthServer() {
+      const url = (this.authServer.clientUrl || '').trim();
+      const key = (this.authServer.clientApiKey || '').trim();
+      if (!url || !key || key.startsWith('••')) {
+        this.authServer.state = 'fail';
+        this.authServer.msg = '⚠ URL 과 API 키를 모두 입력하세요.';
+        return;
+      }
+      this.authServer.busy = true;
+      this.authServer.msg = '연결 시도 중...';
+      try {
+        const r = await fetch('/api/auth/auth-server/test', {
+          method: 'POST',
+          headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({url, api_key: key}),
+        });
+        const d = await r.json();
+        if (d.ok) {
+          this.authServer.state = 'ok';
+          this.authServer.msg = `✅ 연결 성공 (${d.latency_ms}ms · 서버 v${d.server_version || '?'})`;
+        } else {
+          this.authServer.state = 'fail';
+          this.authServer.msg = `❌ ${d.error || '실패'}`;
+        }
+      } catch(e) {
+        this.authServer.state = 'fail';
+        this.authServer.msg = `❌ ${e.message || e}`;
+      } finally { this.authServer.busy = false; }
+    },
+    async saveAuthServerClient() {
+      const url = (this.authServer.clientUrl || '').trim();
+      let key = (this.authServer.clientApiKey || '').trim();
+      // 마스킹 상태 그대로 저장 시도하면 빈 값으로 (서버가 받은 그대로 저장하지 않게)
+      if (key.startsWith('••')) key = '';
+      this.authServer.busy = true;
+      try {
+        const r = await fetch('/api/auth/auth-server/client', {
+          method: 'PATCH',
+          headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({url, api_key: key}),
+        });
+        const d = await r.json();
+        if (!r.ok) {
+          this.authServer.state = 'fail';
+          this.authServer.msg = `❌ ${d.detail || '저장 실패'}`;
+          return;
+        }
+        this.authServer.clientConfigured = !!d.client_configured;
+        this.authServer.msg = `💾 ${d.message}`;
+        if (d.client_configured) {
+          this.authServer.clientApiKey = '••••••••(저장됨)';
+        }
+      } catch(e) {
+        this.authServer.state = 'fail';
+        this.authServer.msg = `❌ ${e.message || e}`;
+      } finally { this.authServer.busy = false; }
+    },
+    async clearAuthServerClient() {
+      if (!confirm('원격 계정 서버 사용을 중단합니다. 진행할까요?')) return;
+      this.authServer.clientUrl = '';
+      this.authServer.clientApiKey = '';
+      await this.saveAuthServerClient();
+      this.authServer.state = 'unknown';
+    },
+
+    // 분석 추가 항목
+    addExtraItem() {
+      const label = this.newExtraItem.label.trim();
+      if (!label) return;
+      const type = this.newExtraItem.type || 'list';
+      const key = label.replace(/\s+/g, '_').replace(/[^a-zA-Z0-9가-힣_]/g, '');
+      if (!key) { this.extraItemsError = '항목명에 사용 가능한 문자가 없습니다.'; return; }
+      const arr = this.extraItems[this.aiMeetingType] || [];
+      if (arr.some(i => i.key === key)) { this.extraItemsError = '이미 같은 항목이 있습니다.'; return; }
+      this.extraItems[this.aiMeetingType] = [...arr, {key, label, type}];
+      this.newExtraItem = {label: '', type: 'list'};
+      this.extraItemsError = '';
+    },
+    removeExtraItem(key) {
+      const arr = this.extraItems[this.aiMeetingType] || [];
+      this.extraItems[this.aiMeetingType] = arr.filter(i => i.key !== key);
+    },
+    async saveExtraItems() {
+      this.extraItemsSaving = true;
+      this.extraItemsSaved = false;
+      this.extraItemsError = '';
+      try {
+        const r = await fetch('/api/settings/analysis-extra-items', {
+          method: 'POST',
+          headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({
+            meeting_type: this.aiMeetingType,
+            items: this.extraItems[this.aiMeetingType] || [],
+          }),
+        });
+        const d = await r.json();
+        if (!r.ok) { this.extraItemsError = d.detail || '저장 실패'; return; }
+        this.extraItems[this.aiMeetingType] = d.items;
+        this.extraItemsSaved = true;
+        setTimeout(() => { this.extraItemsSaved = false; }, 2000);
+      } catch(e) { this.extraItemsError = String(e); } finally { this.extraItemsSaving = false; }
+    },
+
+    // 팔로업 템플릿
+    async loadFollowupTemplates() {
+      try {
+        const r = await fetch('/api/followup-templates');
+        if (r.ok) this.followupTemplates = await r.json();
+      } catch(e) {}
+    },
+    get filteredFollowup() {
+      if (this.followupFilter === 'all') return this.followupTemplates;
+      return this.followupTemplates.filter(t => t.meeting_type === this.followupFilter);
+    },
+    // ⑫ v3.5.0: 기본 템플릿 추가
+    async seedDefaultFollowup() {
+      this.seedingFollowup = true;
+      try {
+        const r = await fetch('/api/followup-templates/seed-defaults', {method: 'POST'});
+        const d = await r.json();
+        if (d.added > 0) {
+          await this.loadFollowupTemplates();
+          alert(`✅ 기본 템플릿 ${d.added}개가 추가되었습니다.`);
+        } else {
+          alert('이미 모든 기본 템플릿이 등록되어 있습니다.');
+        }
+      } catch(e) {
+        alert('추가 실패: ' + e.message);
+      } finally {
+        this.seedingFollowup = false;
+      }
+    },
+
+    openNewFollowup() {
+      this.followupEditing = {
+        id: null,
+        meeting_type: this.followupFilter !== 'all' ? this.followupFilter : '초도상담',
+        title: '', content: '', sort_order: 0,
+      };
+    },
+    openEditFollowup(t) {
+      this.followupEditing = { ...t };
+    },
+    cancelFollowup() { this.followupEditing = null; this.followupError = ''; },
+    async saveFollowup() {
+      if (!this.followupEditing) return;
+      const { title, content, meeting_type, sort_order } = this.followupEditing;
+      if (!title.trim() || !content.trim()) { this.followupError = '제목과 내용을 입력해 주세요.'; return; }
+      this.followupSaving = true;
+      this.followupError = '';
+      try {
+        const isEdit = !!this.followupEditing.id;
+        const url = isEdit ? `/api/followup-templates/${this.followupEditing.id}` : '/api/followup-templates';
+        const r = await fetch(url, {
+          method: isEdit ? 'PATCH' : 'POST',
+          headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({meeting_type, title: title.trim(), content: content.trim(), sort_order: sort_order || 0}),
+        });
+        const d = await r.json();
+        if (!r.ok) { this.followupError = d.detail || '저장 실패'; return; }
+        await this.loadFollowupTemplates();
+        this.followupEditing = null;
+      } catch(e) { this.followupError = String(e); } finally { this.followupSaving = false; }
+    },
+    async deleteFollowup(id) {
+      if (!confirm('이 팔로업 템플릿을 삭제할까요?')) return;
+      try {
+        await fetch(`/api/followup-templates/${id}`, {method: 'DELETE'});
+        await this.loadFollowupTemplates();
+      } catch(e) {}
+    },
+    async copyFollowup(template) {
+      try {
+        // meeting_id 없이 렌더 (담당자/매장명 등만 치환)
+        const r = await fetch(`/api/followup-templates/${template.id}/render`, {
+          method: 'POST',
+          headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({meeting_id: null}),
+        });
+        const d = await r.json();
+        await navigator.clipboard.writeText(d.rendered || template.content);
+        this._showToast('클립보드에 복사됨');
+      } catch(e) {
+        await navigator.clipboard.writeText(template.content).catch(()=>{});
+        this._showToast('복사됨');
+      }
+    },
+
+    // ===== v3.0.0 Phase 2: 사용자 관리 + v3.3.0 Phase 5: 승인 플로우 =====
+
+    async loadUsers() {
+      try {
+        const r = await fetch('/api/users');
+        if (r.ok) this.userList = await r.json();
+      } catch(e) {}
+      await this.loadPendingUsers();
+    },
+
+    async loadPendingUsers() {
+      try {
+        const r = await fetch('/api/users/pending');
+        if (r.ok) this.pendingUsers = await r.json();
+      } catch(e) {}
+    },
+
+    async approveUser(user) {
+      if (!confirm(`'${user.display_name}(${user.username})' 의 가입을 승인할까요?`)) return;
+      try {
+        const r = await fetch(`/api/users/${user.id}/approve`, { method: 'POST' });
+        const data = await r.json();
+        if (!r.ok) { alert(data.detail || '승인 실패'); return; }
+        await this.loadUsers();
+      } catch(e) { alert(String(e)); }
+    },
+
+    async rejectUser(user) {
+      if (!confirm(`'${user.display_name}(${user.username})' 의 가입 신청을 거절하고 삭제할까요?`)) return;
+      try {
+        const r = await fetch(`/api/users/${user.id}/reject`, { method: 'POST' });
+        const data = await r.json();
+        if (!r.ok) { alert(data.detail || '거절 실패'); return; }
+        await this.loadUsers();
+      } catch(e) { alert(String(e)); }
+    },
+
+    async createNewUser() {
+      this.savingNewUser = true;
+      this.newUserError = '';
+      this.newUserSuccess = '';
+      const u = this.newUser;
+      if (!u.username || !u.display_name || !u.password) {
+        this.newUserError = '아이디·이름·비밀번호를 모두 입력해 주세요.';
+        this.savingNewUser = false; return;
+      }
+      try {
+        const r = await fetch('/api/users', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify(u),
+        });
+        const data = await r.json();
+        if (!r.ok) { this.newUserError = data.detail || '생성 실패'; return; }
+        this.newUserSuccess = `✅ '${data.display_name}' 계정이 생성되었습니다.`;
+        this.newUser = { username: '', display_name: '', password: '', role: 'user' };
+        this.showNewUserForm = false;
+        await this.loadUsers();
+        setTimeout(() => { this.newUserSuccess = ''; }, 3000);
+      } catch(e) {
+        this.newUserError = String(e);
+      } finally {
+        this.savingNewUser = false;
+      }
+    },
+
+    startEditUser(user) {
+      this.editingUserId = user.id;
+      this.editUserForm = {
+        display_name: user.display_name,
+        role: user.role,
+        is_active: !!user.is_active,
+        password: '',
+      };
+      this.editError = '';
+    },
+
+    cancelEditUser() {
+      this.editingUserId = null;
+      this.editError = '';
+    },
+
+    async saveEditUser(userId) {
+      this.savingEdit = true;
+      this.editError = '';
+      try {
+        const body = {
+          display_name: this.editUserForm.display_name,
+          role: this.editUserForm.role,
+          is_active: this.editUserForm.is_active,
+        };
+        if (this.editUserForm.password) body.password = this.editUserForm.password;
+        const r = await fetch(`/api/users/${userId}`, {
+          method: 'PATCH',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify(body),
+        });
+        const data = await r.json();
+        if (!r.ok) { this.editError = data.detail || '수정 실패'; return; }
+        this.editingUserId = null;
+        await this.loadUsers();
+      } catch(e) {
+        this.editError = String(e);
+      } finally {
+        this.savingEdit = false;
+      }
+    },
+
+    async deleteUser(user) {
+      if (!confirm(`'${user.display_name}' 계정을 삭제할까요? 이 작업은 되돌릴 수 없습니다.`)) return;
+      try {
+        const r = await fetch(`/api/users/${user.id}`, { method: 'DELETE' });
+        const data = await r.json();
+        if (!r.ok) { alert(data.detail || '삭제 실패'); return; }
+        await this.loadUsers();
+      } catch(e) {
+        alert(String(e));
+      }
+    },
+
+    async changeMyPassword() {
+      this.savingPwd = true;
+      this.pwdError = '';
+      this.pwdSuccess = '';
+      if (!this.pwdForm.current || !this.pwdForm.next) {
+        this.pwdError = '현재 비밀번호와 새 비밀번호를 입력해 주세요.';
+        this.savingPwd = false; return;
+      }
+      if (this.pwdForm.next !== this.pwdForm.confirm) {
+        this.pwdError = '새 비밀번호가 일치하지 않습니다.';
+        this.savingPwd = false; return;
+      }
+      if (this.pwdForm.next.length < 4) {
+        this.pwdError = '새 비밀번호는 4자 이상이어야 합니다.';
+        this.savingPwd = false; return;
+      }
+      try {
+        const r = await fetch('/api/auth/change-password', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({
+            current_password: this.pwdForm.current,
+            new_password: this.pwdForm.next,
+          }),
+        });
+        const data = await r.json();
+        if (!r.ok) { this.pwdError = data.detail || '변경 실패'; return; }
+        this.pwdSuccess = '✅ 비밀번호가 변경되었습니다.';
+        this.pwdForm = { current: '', next: '', confirm: '' };
+        setTimeout(() => { this.pwdSuccess = ''; }, 3000);
+      } catch(e) {
+        this.pwdError = String(e);
+      } finally {
+        this.savingPwd = false;
+      }
+    },
+
+    // ===== v2.8.0 FF: 견적서 양식 자동 작성 =====
+    async loadQuoteFields() {
+      try {
+        const r = await fetch('/api/quote/fields');
+        if (r.ok) {
+          const data = await r.json();
+          this.quoteFieldKeys = data.field_keys || [];
+          this.quoteFieldLabels = data.field_labels || {};
+        }
+      } catch (e) { /* ignore */ }
+    },
+    async loadQuoteConfig() {
+      try {
+        const r = await fetch('/api/quote/config');
+        if (!r.ok) return;
+        const data = await r.json();
+        this.quoteConfigured = !!data.configured;
+        this.quoteTemplatePath = data.template_path || '';
+        this.quoteTemplateName = data.template_name || '';
+        this.quoteDesignerName = data.designer_name || '';
+        this.quoteMapping = data.cell_mapping || {};
+        if (this.quoteTemplatePath) {
+          await this.analyzeQuoteTemplate(false);
+        }
+      } catch (e) { /* ignore */ }
+    },
+    async pickQuoteFile() {
+      this.quoteFileError = '';
+      this.quotePicking = true;
+      try {
+        let picked = '';
+        if (window.pywebview && window.pywebview.api && window.pywebview.api.pick_file) {
+          const result = await window.pywebview.api.pick_file('xlsx');
+          picked = (typeof result === 'string') ? result : (result && result.path) || '';
+        } else {
+          picked = prompt('견적서 양식 .xlsx 절대 경로를 입력하세요:', this.quoteTemplatePath || '') || '';
+        }
+        if (!picked) { this.quotePicking = false; return; }
+        this.quoteTemplatePath = picked;
+        // 파일 이름 자동 추출
+        if (!this.quoteTemplateName) {
+          const m = picked.match(/[\\/]([^\\/]+)\.xlsx?$/i);
+          if (m) this.quoteTemplateName = m[1];
+        }
+        await this.analyzeQuoteTemplate(true);
+      } catch (e) {
+        this.quoteFileError = '파일 선택 실패: ' + (e.message || e);
+      } finally {
+        this.quotePicking = false;
+      }
+    },
+    async analyzeQuoteTemplate(setDefaults) {
+      this.quoteFileError = '';
+      try {
+        const r = await fetch('/api/quote/analyze', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({file_path: this.quoteTemplatePath}),
+        });
+        if (!r.ok) {
+          const err = await r.json().catch(() => ({detail: r.statusText}));
+          throw new Error(err.detail || ('HTTP ' + r.status));
+        }
+        this.quoteAnalysis = await r.json();
+        if (setDefaults || !this.quotePreviewSheet) {
+          this.quotePreviewSheet = this.quoteAnalysis.active_sheet || (this.quoteAnalysis.sheets && this.quoteAnalysis.sheets[0]) || '';
+        }
+      } catch (e) {
+        this.quoteFileError = '분석 실패: ' + (e.message || e);
+        this.quoteAnalysis = null;
+      }
+    },
+    get quoteSheetRows() {
+      if (!this.quoteAnalysis || !this.quoteAnalysis.sheets_preview) return [];
+      const sheet = this.quoteAnalysis.sheets_preview[this.quotePreviewSheet];
+      return sheet ? (sheet.rows || []) : [];
+    },
+    get quoteSheetColCount() {
+      const sheet = this.quoteAnalysis && this.quoteAnalysis.sheets_preview
+        && this.quoteAnalysis.sheets_preview[this.quotePreviewSheet];
+      const max = sheet ? Math.min(sheet.max_col || 8, 15) : 8;
+      const out = [];
+      for (let i = 1; i <= max; i++) out.push(i);
+      return out;
+    },
+    _colLetterFor(n) { return this._colLetter(n); },  // alias
+    _ensureMappingObj(key) {
+      if (!this.quoteMapping[key] || typeof this.quoteMapping[key] !== 'object') {
+        this.quoteMapping[key] = {sheet: '', cell: ''};
+      }
+      // cell 대문자 정리
+      if (this.quoteMapping[key].cell) {
+        this.quoteMapping[key].cell = String(this.quoteMapping[key].cell).toUpperCase().replace(/\s+/g, '');
+      }
+    },
+    // 미리보기 셀 클릭 → 현재 활성 필드에 자동 매핑
+    activateQuoteMapping(key) {
+      if (this.quoteActiveMappingKey === key) {
+        this.quoteActiveMappingKey = '';
+        return;
+      }
+      this.quoteActiveMappingKey = key;
+      // 현재 필드에 이미 시트가 지정돼 있으면 그 시트를 미리보기로 전환
+      const existing = this.quoteMapping[key];
+      if (existing && existing.sheet && this.quoteAnalysis &&
+          this.quoteAnalysis.sheets && this.quoteAnalysis.sheets.includes(existing.sheet)) {
+        this.quotePreviewSheet = existing.sheet;
+      }
+    },
+    selectQuoteCell(cell) {
+      if (!this.quoteActiveMappingKey) return;
+      const key = this.quoteActiveMappingKey;
+      if (!this.quoteMapping[key] || typeof this.quoteMapping[key] !== 'object') {
+        this.quoteMapping[key] = {sheet: '', cell: ''};
+      }
+      this.quoteMapping[key].sheet = this.quotePreviewSheet;
+      this.quoteMapping[key].cell = cell.address;
+      this.quoteActiveMappingKey = ''; // 선택 완료 후 자동 해제
+    },
+    // 해당 셀이 이미 매핑된 셀인지 확인 (녹색 하이라이트용)
+    _isMappedCell(cell) {
+      for (const [k, v] of Object.entries(this.quoteMapping || {})) {
+        if (!v || typeof v !== 'object') continue;
+        if (v.sheet === this.quotePreviewSheet && v.cell === cell.address) return true;
+      }
+      return false;
+    },
+    async saveQuoteConfig() {
+      this.quoteSaveResult = '';
+      this.quoteSaveError = '';
+      // 빈 매핑 정리
+      const cleanMapping = {};
+      for (const [k, v] of Object.entries(this.quoteMapping || {})) {
+        if (!v || typeof v !== 'object') continue;
+        const sheet = (v.sheet || '').trim();
+        const cell = (v.cell || '').trim().toUpperCase();
+        if (sheet && cell) cleanMapping[k] = {sheet, cell};
+      }
+      this.quoteSaving = true;
+      try {
+        const r = await fetch('/api/quote/config', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({
+            template_path: this.quoteTemplatePath,
+            template_name: this.quoteTemplateName,
+            cell_mapping: cleanMapping,
+            designer_name: this.quoteDesignerName,
+          }),
+        });
+        if (!r.ok) {
+          const err = await r.json().catch(() => ({detail: r.statusText}));
+          throw new Error(err.detail || ('HTTP ' + r.status));
+        }
+        const data = await r.json();
+        this.quoteConfigured = !!data.configured;
+        this.quoteSaveResult = 'saved';
+        setTimeout(() => { if (this.quoteSaveResult === 'saved') this.quoteSaveResult = ''; }, 2000);
+      } catch (e) {
+        this.quoteSaveError = '저장 실패: ' + (e.message || e);
+      } finally {
+        this.quoteSaving = false;
+      }
+    },
+    async resetQuoteConfig() {
+      if (!confirm('견적서 양식 연동을 해제할까요? (양식 경로 + 매핑 모두 삭제)')) return;
+      try {
+        await fetch('/api/quote/config', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({template_path: '', template_name: '', cell_mapping: {}, designer_name: this.quoteDesignerName || ''}),
+        });
+        this.quoteConfigured = false;
+        this.quoteTemplatePath = '';
+        this.quoteTemplateName = '';
+        this.quoteMapping = {};
+        this.quoteAnalysis = null;
+      } catch (e) { alert('해제 실패: ' + e); }
+    },
+
+    // ===== v2.7.0 Q: 빠른 답변 템플릿 =====
+    async loadQuickReplies() {
+      try {
+        const r = await fetch('/api/quick-replies');
+        if (r.ok) {
+          const data = await r.json();
+          this.quickReplies = data.replies || [];
+        }
+      } catch (e) { /* ignore */ }
+    },
+    newQuickReply() {
+      this.qrEditing = {title: '', content: '', category: ''};
+      this.qrSaveError = '';
+    },
+    editQuickReply(r) {
+      this.qrEditing = {id: r.id, title: r.title, content: r.content, category: r.category || ''};
+      this.qrSaveError = '';
+    },
+    async saveQuickReply() {
+      if (!this.qrEditing) return;
+      this.qrSaveError = '';
+      const body = {
+        title: (this.qrEditing.title || '').trim(),
+        content: (this.qrEditing.content || '').trim(),
+        category: (this.qrEditing.category || '').trim() || null,
+      };
+      if (!body.title) { this.qrSaveError = '제목은 필수'; return; }
+      if (!body.content) { this.qrSaveError = '내용은 필수'; return; }
+      try {
+        let r;
+        if (this.qrEditing.id) {
+          r = await fetch('/api/quick-replies/' + this.qrEditing.id, {
+            method: 'PATCH',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(body),
+          });
+        } else {
+          r = await fetch('/api/quick-replies', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(body),
+          });
+        }
+        if (!r.ok) {
+          const err = await r.json().catch(() => ({detail: r.statusText}));
+          throw new Error(err.detail || ('HTTP ' + r.status));
+        }
+        this.qrEditing = null;
+        await this.loadQuickReplies();
+      } catch (e) {
+        this.qrSaveError = '저장 실패: ' + (e.message || e);
+      }
+    },
+    async deleteQuickReply(r) {
+      if (!confirm('"' + r.title + '" 템플릿을 삭제할까요?')) return;
+      try {
+        const resp = await fetch('/api/quick-replies/' + r.id, {method: 'DELETE'});
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+        await this.loadQuickReplies();
+      } catch (e) {
+        alert('삭제 실패: ' + (e.message || e));
+      }
+    },
+    async copyReplyContent(r) {
+      try {
+        await navigator.clipboard.writeText(r.content || '');
+        this.qrCopyToast = '"' + r.title + '" 복사됨 ✓';
+      } catch (e) {
+        try {
+          const ta = document.createElement('textarea');
+          ta.value = r.content || '';
+          ta.style.position = 'fixed'; ta.style.opacity = '0';
+          document.body.appendChild(ta);
+          ta.select();
+          document.execCommand('copy');
+          document.body.removeChild(ta);
+          this.qrCopyToast = '"' + r.title + '" 복사됨 ✓';
+        } catch (e2) {
+          this.qrCopyToast = '복사 실패';
+        }
+      }
+      setTimeout(() => { this.qrCopyToast = ''; }, 1500);
+    },
+
+    // ===== v2.7.0 U: 수동 전체 백업 =====
+    async runFullBackup() {
+      if (this.backupRunning) return;
+      if (!confirm(
+        'DB · 모델 캐시 · 임시 녹음 등 InterioNote 사용자 데이터를 zip 으로 백업합니다.\n' +
+        '고객 폴더 (07_고객정보) 는 용량이 클 수 있어 포함 안 합니다 — 사용자 OneDrive 에 이미 동기화되어 있을 가능성이 높습니다.\n\n' +
+        '저장 위치: %APPDATA%\\InterioNote\\backups\\ 에 timestamp 별로 자동 저장.\n\n' +
+        '진행할까요?'
+      )) return;
+      this.backupRunning = true;
+      this.backupResult = null;
+      this.backupError = '';
+      try {
+        const r = await fetch('/api/backup/run', {method: 'POST'});
+        if (!r.ok) {
+          const err = await r.json().catch(() => ({detail: r.statusText}));
+          throw new Error(err.detail || ('HTTP ' + r.status));
+        }
+        this.backupResult = await r.json();
+      } catch (e) {
+        this.backupError = '백업 실패: ' + (e.message || e);
+      } finally {
+        this.backupRunning = false;
+      }
+    },
+    openBackupFolder() {
+      if (window.pywebview && window.pywebview.api && window.pywebview.api.open_in_explorer) {
+        // %APPDATA%\InterioNote\backups
+        const path = (this.dataPaths && this.dataPaths.user_data_dir) ? (this.dataPaths.user_data_dir + '\\backups') : '';
+        if (path) window.pywebview.api.open_in_explorer(path);
+      }
+    },
+
+    // ===== v2.6.0 JJ: OJT 연동 =====
+    async loadOjtFields() {
+      try {
+        const r = await fetch('/api/ojt/fields');
+        if (r.ok) {
+          const data = await r.json();
+          this.ojtFieldKeys = data.field_keys || [];
+          this.ojtFieldLabels = data.field_labels || {};
+        }
+      } catch (e) { /* ignore */ }
+    },
+    async loadOjtConfig() {
+      try {
+        const r = await fetch('/api/ojt/config');
+        if (!r.ok) return;
+        const data = await r.json();
+        this.ojtConfigured = !!data.configured;
+        this.ojtFilePath = data.file_path || '';
+        // v2.7.1: 받아온 매핑은 그대로 보존 (analyze 실패해도 select 옵션이 빈 상태로 보여도 OK)
+        this.ojtMapping = data.column_mapping || {};
+        this.ojtStartRow = data.start_row || 2;
+        this.ojtSheetName = data.sheet_name || '';
+        console.log('[OJT] loaded mapping:', this.ojtMapping, 'sheet:', this.ojtSheetName);
+        // 이미 설정돼있으면 자동으로 분석도 다시 실행 (UI 에 미리보기 보이게)
+        // analyze 가 실패해도 위에서 set 한 ojtMapping 은 그대로 유지됨
+        if (this.ojtFilePath) {
+          await this.analyzeOjt(false);
+        }
+      } catch (e) {
+        console.warn('[OJT] loadOjtConfig 실패:', e);
+      }
+    },
+    async pickOjtFile() {
+      this.ojtFileError = '';
+      this.ojtPicking = true;
+      try {
+        let picked = '';
+        if (window.pywebview && window.pywebview.api && window.pywebview.api.pick_file) {
+          const result = await window.pywebview.api.pick_file('xlsx');
+          picked = (typeof result === 'string') ? result : (result && result.path) || '';
+        } else if (window.pywebview && window.pywebview.api && window.pywebview.api.pick_folder) {
+          // pick_file 이 없으면 pick_folder 로 폴더만 잡고 사용자에게 파일명 입력 안내 — 우회
+          alert('이 환경에서는 파일 선택이 지원되지 않습니다. 파일 경로를 직접 입력해주세요.');
+          this.ojtPicking = false;
+          return;
+        } else {
+          // 브라우저 환경 — prompt 로 경로 직접 입력
+          picked = prompt('OJT 엑셀 파일 절대 경로를 입력하세요:', this.ojtFilePath || '') || '';
+        }
+        if (!picked) { this.ojtPicking = false; return; }
+        this.ojtFilePath = picked;
+        await this.analyzeOjt(true);
+      } catch (e) {
+        this.ojtFileError = '파일 선택 실패: ' + (e.message || e);
+      } finally {
+        this.ojtPicking = false;
+      }
+    },
+    async analyzeOjt(setDefaults) {
+      this.ojtFileError = '';
+      try {
+        const r = await fetch('/api/ojt/analyze', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({file_path: this.ojtFilePath, head_rows: 6}),
+        });
+        if (!r.ok) {
+          const err = await r.json().catch(() => ({detail: r.statusText}));
+          throw new Error(err.detail || ('HTTP ' + r.status));
+        }
+        this.ojtAnalysis = await r.json();
+        if (setDefaults || !this.ojtSheetName) {
+          this.ojtSheetName = this.ojtAnalysis.active_sheet || (this.ojtAnalysis.sheets && this.ojtAnalysis.sheets[0]) || '';
+        }
+      } catch (e) {
+        this.ojtFileError = '파일 분석 실패: ' + (e.message || e);
+        this.ojtAnalysis = null;
+      }
+    },
+    recheckPreview() { /* x-model 변경 시 자동으로 selectedSheetPreview / colHeaders 가 재평가됨 */ },
+
+    get selectedSheetPreview() {
+      if (!this.ojtAnalysis || !this.ojtAnalysis.preview) return [];
+      const sheet = this.ojtAnalysis.preview[this.ojtSheetName];
+      return sheet ? (sheet.rows || []) : [];
+    },
+    get colHeaders() {
+      // v2.7.1 fix: 매핑된 letter 가 무조건 colHeaders 에 포함되도록 보강
+      // (분석 max_col 이 작으면 select option 에 매핑된 letter 가 없어져 매핑이 풀려 보였음)
+      const sheet = this.ojtAnalysis && this.ojtAnalysis.preview
+        ? this.ojtAnalysis.preview[this.ojtSheetName] : null;
+      const analyzedMax = Math.min(sheet ? (sheet.max_col || 12) : 12, 26);
+      const seen = new Set();
+      const out = [];
+      // 1) 분석된 max_col 까지의 letter
+      for (let i = 0; i < analyzedMax; i++) {
+        const L = this._colLetter(i + 1);
+        if (!seen.has(L)) { seen.add(L); out.push(L); }
+      }
+      // 2) 매핑에 사용된 letter 들이 빠져있으면 추가 (가장 큰 매핑 letter 까지 채움)
+      let maxMappedIdx = analyzedMax;
+      for (const v of Object.values(this.ojtMapping || {})) {
+        if (typeof v === 'string' && /^[A-Za-z]+$/.test(v)) {
+          const idx = this._letterToIndex(v.toUpperCase());
+          if (idx > maxMappedIdx) maxMappedIdx = idx;
+        }
+      }
+      // 매핑된 max 까지 letter 보충
+      for (let i = analyzedMax; i < Math.min(maxMappedIdx, 60); i++) {
+        const L = this._colLetter(i + 1);
+        if (!seen.has(L)) { seen.add(L); out.push(L); }
+      }
+      return out;
+    },
+    _letterToIndex(letter) {
+      // 'A' -> 1, 'Z' -> 26, 'AA' -> 27 ...
+      let n = 0;
+      for (let i = 0; i < letter.length; i++) {
+        n = n * 26 + (letter.charCodeAt(i) - 64);
+      }
+      return n;
+    },
+    _colLetter(n) {
+      let s = '';
+      while (n > 0) {
+        const r = (n - 1) % 26;
+        s = String.fromCharCode(65 + r) + s;
+        n = Math.floor((n - 1) / 26);
+      }
+      return s;
+    },
+    paddedCells(cells) {
+      // 각 행의 cells 배열을 colHeaders 길이만큼 패딩 (빈 셀 채움)
+      const targetLen = this.colHeaders.length;
+      const map = {};
+      for (const c of cells) map[c.letter] = c;
+      const out = [];
+      for (const letter of this.colHeaders) {
+        out.push(map[letter] || {col: 0, letter, value: ''});
+      }
+      return out;
+    },
+    colHeaderHint(letter) {
+      // 첫 행 (헤더) 의 해당 컬럼 값을 힌트로 (있으면)
+      const sheet = this.ojtAnalysis && this.ojtAnalysis.preview && this.ojtAnalysis.preview[this.ojtSheetName];
+      if (!sheet || !sheet.rows || !sheet.rows.length) return '';
+      const firstRow = sheet.rows[0];
+      const cell = (firstRow.cells || []).find(c => c.letter === letter);
+      return cell && cell.value ? String(cell.value).slice(0, 18) : '';
+    },
+    async saveOjtConfig() {
+      this.ojtSaveResult = '';
+      this.ojtSaveError = '';
+      // 빈 매핑 항목 제외
+      const cleanMapping = {};
+      for (const [k, v] of Object.entries(this.ojtMapping || {})) {
+        if (v && String(v).trim()) cleanMapping[k] = String(v).trim();
+      }
+      // v2.7.1 fix: 매핑이 모두 비어있으면 사용자 의도 확인 (실수로 풀린 경우 방지)
+      if (Object.keys(cleanMapping).length === 0) {
+        if (!confirm(
+          '매핑된 컬럼이 하나도 없습니다.\n' +
+          '정말 저장하시겠어요? (이전에 저장한 매핑이 있다면 모두 사라집니다)\n\n' +
+          '※ select 들이 비어 보인다면 시트 미리보기에서 컬럼을 다시 선택해주세요.'
+        )) {
+          return;
+        }
+      }
+      this.ojtSaving = true;
+      try {
+        const r = await fetch('/api/ojt/config', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({
+            file_path: this.ojtFilePath,
+            column_mapping: cleanMapping,
+            start_row: this.ojtStartRow || 2,
+            sheet_name: this.ojtSheetName || null,
+          }),
+        });
+        if (!r.ok) {
+          const err = await r.json().catch(() => ({detail: r.statusText}));
+          throw new Error(err.detail || ('HTTP ' + r.status));
+        }
+        const data = await r.json();
+        this.ojtConfigured = !!data.configured;
+        this.ojtSaveResult = 'saved';
+        setTimeout(() => { if (this.ojtSaveResult === 'saved') this.ojtSaveResult = ''; }, 2000);
+      } catch (e) {
+        this.ojtSaveError = '저장 실패: ' + (e.message || e);
+      } finally {
+        this.ojtSaving = false;
+      }
+    },
+    async resetOjtConfig() {
+      if (!confirm('OJT 연동을 해제할까요? (파일 경로 + 매핑 모두 삭제)')) return;
+      try {
+        const r = await fetch('/api/ojt/config', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({file_path: '', column_mapping: {}, start_row: 2, sheet_name: null}),
+        });
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        this.ojtConfigured = false;
+        this.ojtFilePath = '';
+        this.ojtMapping = {};
+        this.ojtSheetName = '';
+        this.ojtAnalysis = null;
+      } catch (e) {
+        alert('해제 실패: ' + (e.message || e));
+      }
+    },
+
+    // v2.5.6 O2: Ollama 가용성 체크
+    async checkOllamaHealth() {
+      try {
+        const r = await fetch('/api/ollama/health');
+        const data = await r.json().catch(() => null);
+        if (!data) { this.ollamaState = 'no_ollama'; return; }
+        this.ollamaInfo = data;
+        if (!data.ok) this.ollamaState = 'no_ollama';
+        else if (!data.model_ready) this.ollamaState = 'no_model';
+        else this.ollamaState = 'ok';
+      } catch (e) { this.ollamaState = 'no_ollama'; }
+    },
+    async recheckOllama() {
+      this.ollamaState = 'checking';
+      await this.checkOllamaHealth();
+    },
+    openOllamaDownload() {
+      const url = 'https://ollama.com/download/windows';
+      if (window.pywebview && window.pywebview.api && window.pywebview.api.open_external_url) {
+        window.pywebview.api.open_external_url(url);
+      } else { window.open(url, '_blank'); }
+    },
+
+    // v2.5.0: 다크모드
+    setTheme(t) {
+      this.theme = t;
+      try { localStorage.setItem('interionote.theme', t); } catch(e) {}
+      this._applyTheme();
+    },
+    _applyTheme() {
+      try {
+        let dark = false;
+        if (this.theme === 'dark') dark = true;
+        else if (this.theme === 'light') dark = false;
+        else dark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+        const root = document.documentElement;
+        if (dark) root.classList.add('dark');
+        else root.classList.remove('dark');
+      } catch(e) {}
+    },
+
+    async loadSystemSpecs() {
+      try {
+        const r = await fetch('/api/system/specs');
+        if (!r.ok) return;
+        const specs = await r.json();
+        this.systemSpecs = specs;
+        this.applySpecsToModelOptions(specs);
+      } catch (e) {
+        // 사양 감지 실패해도 UI 동작에 영향 없음
+        console.warn('system specs fetch failed:', e);
+      }
+    },
+
+    applySpecsToModelOptions(specs) {
+      if (!specs || !specs.recommendation) return;
+      const realtimeRec = specs.recommendation.realtime;
+      const postRec = specs.recommendation.post;
+      // 모든 옵션의 recommended 플래그 초기화 → 추천 사이즈에만 설정
+      for (const m of this.modelOptions) {
+        m.recommended = (m.size === realtimeRec);
+        m.recommended_post = (m.size === postRec);
+      }
+    },
+
+    formatSpecs() {
+      const s = this.systemSpecs;
+      if (!s) return '사양 감지 중...';
+      const parts = [];
+      if (s.cpu_cores) parts.push('CPU ' + s.cpu_cores + '코어');
+      if (s.ram_gb) parts.push('RAM ' + s.ram_gb + 'GB');
+      if (s.gpu && s.gpu.name) parts.push('GPU ' + s.gpu.name + ' (' + s.gpu.vram_gb + 'GB)');
+      else parts.push('GPU 미감지');
+      return parts.join(' · ');
     },
 
     async load() {
@@ -456,11 +3414,16 @@ function settingsPage() {
       try {
         const r = await fetch('/api/settings');
         const data = await r.json();
+        // Phase 8B: device 가 응답에 없으면 'auto' 기본값
+        if (data.whisper && !data.whisper.device) data.whisper.device = 'auto';
+        if (data.whisper && !data.whisper.device_choices) data.whisper.device_choices = ['auto','cpu','cuda'];
         this.settings = {
           whisper: data.whisper,
           noise: data.noise,
           vad: data.vad,
           paths: data.paths || {client_root: '', client_root_exists: false, folder_template: [], required_folder: '상담기록'},
+          ollama: data.ollama || {},      // v3.3.0 버그수정: 모델 변경 후 재오픈 시 반영
+          designer: data.designer || {},  // v3.3.0 버그수정: 로드 후 ollama.model 정상 사용
         };
       } catch (e) {
         this.flash('설정 로드 실패: ' + e, 'error');
@@ -508,6 +3471,47 @@ function settingsPage() {
         window.pywebview.api.open_external_url(url);
       } else {
         window.open(url, '_blank');
+      }
+    },
+
+    // ----- Phase 8D: 빠른 업데이트 -----
+    async runQuickUpdate() {
+      if (this.quickUpdateState === 'running') return;
+      const info = this.updateResult || {};
+      const qu = info.quick_update || {};
+      if (!qu.url || !info.latest_version) {
+        this.quickUpdateError = '빠른 업데이트 자산을 찾지 못했습니다. 전체 인스톨러로 받아주세요.';
+        return;
+      }
+      const sizeKB = Math.round((qu.size || 0) / 1024);
+      const ok = confirm(
+        '빠른 업데이트를 적용할까요?\n\n' +
+        '- 다운로드: 약 ' + sizeKB + 'KB\n' +
+        '- 새 버전: v' + info.latest_version + '\n' +
+        '- 사용자 데이터(고객 폴더·DB·녹음)는 모두 그대로 보존됩니다.\n\n' +
+        '확인을 누르면 다운로드 → 자동 적용 → 앱 재시작 순으로 진행됩니다.'
+      );
+      if (!ok) return;
+
+      this.quickUpdateState = 'running';
+      this.quickUpdateError = '';
+      try {
+        const r = await fetch('/api/app/quick-update/run', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({
+            download_url: qu.url,
+            expected_version: info.latest_version,
+          }),
+        });
+        if (!r.ok) {
+          const err = await r.json().catch(() => ({detail: r.statusText}));
+          throw new Error(err.detail || ('HTTP ' + r.status));
+        }
+        // 백엔드가 1초 후 앱 종료 — UI 는 그동안 "적용 중" 유지
+      } catch (e) {
+        this.quickUpdateError = '빠른 업데이트 실패: ' + (e.message || String(e));
+        this.quickUpdateState = 'error';
       }
     },
 
@@ -654,6 +3658,7 @@ function settingsPage() {
           body: JSON.stringify({
             model_size: this.settings.whisper.model_size,
             beam_size: this.settings.whisper.beam_size,
+            device: this.settings.whisper.device || 'auto',  // Phase 8B
           }),
         });
         if (!r.ok) {
@@ -748,5 +3753,6 @@ function settingsPage() {
   };
 }
 </script>
+  <script src="/static/remote_status_badge.js"></script>
 </body>
 </html>

@@ -240,6 +240,7 @@ class LiveSession:
                     "text": text,
                     "confidence": result.get("avg_confidence"),
                     "speaker": None,  # 녹음 후 수동 라벨(Phase 3~)
+                    "edited_at": None,  # Phase 8A: 사용자 편집 시 채워짐
                     "created_at": datetime.now().isoformat(timespec="seconds"),
                 }
                 with self._segments_lock:
@@ -289,6 +290,24 @@ class LiveSession:
                     s["speaker"] = speaker
                     return True
         return False
+
+    def update_segment_text(self, segment_id: int, text: str) -> Optional[Dict[str, Any]]:
+        """
+        Phase 8A — 녹음 중 메모리 내 세그먼트의 text 를 사용자 편집으로 교체.
+        edited_at 타임스탬프를 찍어 두면 finalize 시 그대로 DB 저장되고
+        나중에 retranscribe 가 이 카드를 보존(시간 겹침 시 새 카드 폐기) 한다.
+        반환: 수정된 segment dict 사본, 못 찾으면 None.
+        """
+        new_text = (text or "").strip()
+        if not new_text:
+            raise ValueError("빈 텍스트로 교체할 수 없습니다.")
+        with self._segments_lock:
+            for s in self._segments:
+                if s["id"] == segment_id:
+                    s["text"] = new_text
+                    s["edited_at"] = datetime.now().isoformat(timespec="seconds")
+                    return dict(s)
+        return None
 
     def final_result(self) -> Dict[str, Any]:
         duration = (
@@ -347,4 +366,9 @@ def stop_session() -> Dict[str, Any]:
         _active = None
     # stop 은 I/O + join → lock 밖에서
     s.stop()
-    return s.final_result()
+    result = s.final_result()
+    # 세션 객체 해제 + GC — 녹음 버퍼·numpy 배열 즉시 회수
+    del s
+    import gc
+    gc.collect()
+    return result

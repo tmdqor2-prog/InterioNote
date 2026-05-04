@@ -1,0 +1,597 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>통계 · InterioNote</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = { darkMode: 'class' };
+    (function() {
+      try {
+        var t = localStorage.getItem('interionote.theme') || 'system';
+        var dark = (t === 'dark') ||
+          (t === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+        if (dark) document.documentElement.classList.add('dark');
+      } catch(e) {}
+    })();
+  </script>
+  <!-- v3.0.0 Phase 2: 인증 (fetch 오버라이드 + 즉시 토큰 확인) -->
+  <script>
+  (function(){
+    var _origFetch = window.fetch.bind(window);
+    window.fetch = async function(resource, opts){
+      opts = opts ? Object.assign({}, opts) : {};
+      if (typeof resource === 'string' && resource.startsWith('/api/')) {
+        var tok = localStorage.getItem('interionote.token');
+        if (tok) opts.headers = Object.assign({'Authorization': 'Bearer ' + tok}, opts.headers || {});
+      }
+      var r = await _origFetch(resource, opts);
+      if (r.status === 401 && window.location.pathname !== '/login') {
+        localStorage.removeItem('interionote.token');
+        localStorage.removeItem('interionote.user');
+        window.location.replace('/login');
+      }
+      return r;
+    };
+    if (window.location.pathname !== '/login') {
+      var tok = localStorage.getItem('interionote.token');
+      if (!tok) { window.location.replace('/login'); return; }
+      try {
+        var p = JSON.parse(atob(tok.split('.')[1].replace(/-/g,'+').replace(/_/g,'/')));
+        if (p.exp && Date.now()/1000 > p.exp) {
+          localStorage.removeItem('interionote.token');
+          localStorage.removeItem('interionote.user');
+          window.location.replace('/login');
+        }
+      } catch(e) {}
+    }
+    window.getAuthUser = function(){
+      try { return JSON.parse(localStorage.getItem('interionote.user') || 'null'); } catch(e){ return null; }
+    };
+    window.logoutUser = function(){
+      localStorage.removeItem('interionote.token');
+      localStorage.removeItem('interionote.user');
+      window.location.replace('/login');
+    };
+  })();
+  </script>
+  <script defer src="https://unpkg.com/alpinejs@3.14.1/dist/cdn.min.js"></script>
+  <!-- v2.7.1: Chart.js for donut + line charts -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+  <style>
+    body { font-family: 'Segoe UI', 'Malgun Gothic', system-ui, sans-serif; }
+    [x-cloak] { display: none !important; }
+    /* v2.5.4 다크모드 보강 — 액센트 박스를 더 어둡게 + 텍스트 contrast 강화 */
+    html.dark code { color: #f3f4f6; background-color: #374151; }
+    html.dark kbd { color: #f3f4f6; background-color: #374151; border-color: #4b5563; }
+    html.dark input, html.dark select, html.dark textarea { color-scheme: dark; }
+    html.dark input::placeholder, html.dark textarea::placeholder { color: #9ca3af; }
+    html.dark ::-webkit-scrollbar { background: #1f2937; }
+    html.dark ::-webkit-scrollbar-thumb { background: #4b5563; border-radius: 4px; }
+    html.dark ::-webkit-scrollbar-thumb:hover { background: #6b7280; }
+
+    /* 다크모드에서 너무 밝게 보이던 50/100 액센트 배경들 — 강력 override */
+    html.dark .bg-amber-50  { background-color: rgba(120, 53, 15, 0.25) !important; }
+    html.dark .bg-amber-100 { background-color: rgba(120, 53, 15, 0.40) !important; }
+    html.dark .bg-blue-50   { background-color: rgba(30, 58, 138, 0.25) !important; }
+    html.dark .bg-blue-100  { background-color: rgba(30, 58, 138, 0.40) !important; }
+    html.dark .bg-indigo-50 { background-color: rgba(49, 46, 129, 0.25) !important; }
+    html.dark .bg-emerald-50  { background-color: rgba(6, 78, 59, 0.30) !important; }
+    html.dark .bg-emerald-100 { background-color: rgba(6, 78, 59, 0.45) !important; }
+    html.dark .bg-green-50  { background-color: rgba(20, 83, 45, 0.30) !important; }
+    html.dark .bg-green-100 { background-color: rgba(20, 83, 45, 0.45) !important; }
+    html.dark .bg-red-50    { background-color: rgba(127, 29, 29, 0.25) !important; }
+    html.dark .bg-red-100   { background-color: rgba(127, 29, 29, 0.40) !important; }
+    html.dark .bg-purple-50 { background-color: rgba(76, 29, 149, 0.25) !important; }
+    html.dark .bg-purple-100 { background-color: rgba(76, 29, 149, 0.40) !important; }
+    html.dark .bg-yellow-50 { background-color: rgba(113, 63, 18, 0.25) !important; }
+
+    /* 액센트 박스 안의 텍스트 contrast 강화 — 어두운 배경 위 밝은 텍스트 */
+    html.dark .text-amber-900,
+    html.dark .text-amber-800,
+    html.dark .text-amber-700 { color: #fde68a !important; }   /* amber-200 */
+    html.dark .text-blue-900,
+    html.dark .text-blue-800 { color: #bfdbfe !important; }    /* blue-200 */
+    html.dark .text-blue-700 { color: #93c5fd !important; }    /* blue-300 */
+    html.dark .text-emerald-900,
+    html.dark .text-emerald-800 { color: #a7f3d0 !important; } /* emerald-200 */
+    html.dark .text-emerald-700 { color: #6ee7b7 !important; } /* emerald-300 */
+    html.dark .text-green-900,
+    html.dark .text-green-800 { color: #bbf7d0 !important; }   /* green-200 */
+    html.dark .text-green-700 { color: #86efac !important; }   /* green-300 */
+    html.dark .text-red-900,
+    html.dark .text-red-800 { color: #fecaca !important; }     /* red-200 */
+    html.dark .text-red-700 { color: #fca5a5 !important; }     /* red-300 */
+    html.dark .text-purple-900,
+    html.dark .text-purple-800 { color: #e9d5ff !important; }  /* purple-200 */
+    html.dark .text-indigo-900 { color: #c7d2fe !important; }
+
+    /* 일반 회색 텍스트 — 어두운 카드 위에서 더 밝게 */
+    html.dark .text-gray-900 { color: #f3f4f6 !important; }
+    html.dark .text-gray-800 { color: #e5e7eb !important; }
+    html.dark .text-gray-700 { color: #d1d5db !important; }
+    html.dark .text-gray-600 { color: #9ca3af !important; }
+    html.dark .text-gray-500 { color: #9ca3af !important; }
+    html.dark .text-gray-400 { color: #6b7280 !important; }
+
+    /* 액센트 border 도 더 옅게 (눈부심 방지) */
+    html.dark .border-amber-200,
+    html.dark .border-amber-300 { border-color: rgba(180, 83, 9, 0.50) !important; }
+    html.dark .border-blue-200,
+    html.dark .border-blue-300 { border-color: rgba(29, 78, 216, 0.50) !important; }
+    html.dark .border-emerald-200,
+    html.dark .border-emerald-300 { border-color: rgba(5, 150, 105, 0.50) !important; }
+    html.dark .border-red-200,
+    html.dark .border-red-300 { border-color: rgba(220, 38, 38, 0.50) !important; }
+    html.dark .border-green-200,
+    html.dark .border-green-300 { border-color: rgba(22, 163, 74, 0.50) !important; }
+  </style>
+</head>
+<body class="bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100">
+
+<div x-data="statsPage()" x-init="init()" class="min-h-screen">
+
+  <header class="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 sticky top-0 z-10">
+    <div class="max-w-4xl mx-auto px-6 py-3 flex items-center justify-between gap-3">
+      <div class="flex items-center gap-3 min-w-0">
+        <a href="/" class="text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 shrink-0">← 홈</a>
+        <h1 class="text-lg font-bold flex items-center gap-2 dark:text-gray-100">📊 상담 통계</h1>
+      </div>
+      <div class="flex items-center gap-2 shrink-0">
+        <!-- v2.5.6 O2: Ollama 가용성 미니 배지 -->
+        <a href="/settings"
+           class="flex items-center gap-1 px-1.5 py-0.5 border border-gray-200 dark:border-gray-700 rounded hover:bg-gray-50 dark:hover:bg-gray-700 transition"
+           :title="ollamaState === 'ok' ? 'AI 분석 준비 완료'
+                 : ollamaState === 'no_model' ? 'Ollama 모델 없음 — 설정 확인'
+                 : ollamaState === 'no_ollama' ? 'Ollama 미설치 — 설정 확인'
+                 : '확인 중...'">
+          <span class="w-2 h-2 rounded-full"
+                :class="{
+                  'bg-emerald-500': ollamaState === 'ok',
+                  'bg-amber-500': ollamaState === 'no_model',
+                  'bg-red-500': ollamaState === 'no_ollama',
+                  'bg-gray-300 animate-pulse': ollamaState === 'checking'
+                }"></span>
+          <span class="text-[11px] text-gray-600 dark:text-gray-300">AI</span>
+        </a>
+        <button @click="load()" :disabled="loading"
+                class="text-sm bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded disabled:bg-gray-300">
+          새로고침
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <main class="max-w-4xl mx-auto px-6 py-6 space-y-6">
+
+    <div x-show="loading" x-cloak class="text-center py-12 text-gray-400">
+      <div class="inline-block w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+      <div class="mt-2">로딩 중...</div>
+    </div>
+
+    <div x-show="!loading && stats" x-cloak class="space-y-6">
+      <!-- 요약 KPI 카드 4개 -->
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
+          <div class="text-xs text-gray-500 dark:text-gray-400">고객 수</div>
+          <div class="text-2xl font-bold mt-1" x-text="stats.client_count + '명'"></div>
+        </div>
+        <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
+          <div class="text-xs text-gray-500 dark:text-gray-400">총 상담 건</div>
+          <div class="text-2xl font-bold mt-1" x-text="stats.total_meetings + '건'"></div>
+        </div>
+        <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
+          <div class="text-xs text-gray-500 dark:text-gray-400">총 녹음 시간</div>
+          <div class="text-2xl font-bold mt-1" x-text="stats.total_duration_hours + 'h'"></div>
+        </div>
+        <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
+          <div class="text-xs text-gray-500 dark:text-gray-400">평균 상담 길이</div>
+          <div class="text-2xl font-bold mt-1" x-text="stats.avg_duration_min + '분'"></div>
+        </div>
+      </div>
+
+      <!-- 월별 상담 건수 (라인 차트 + 막대 둘 다) -->
+      <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-5">
+        <h2 class="font-semibold mb-3 dark:text-gray-100">📅 최근 6개월 상담 건수</h2>
+        <template x-if="stats.monthly && stats.monthly.length > 0">
+          <div>
+            <!-- v2.7.1: Chart.js 라인 차트 -->
+            <div class="mb-3" style="height: 180px;">
+              <canvas x-ref="monthlyChart"></canvas>
+            </div>
+            <!-- 막대도 함께 (수치 명시) -->
+            <div class="space-y-1.5 text-xs">
+              <template x-for="m in stats.monthly" :key="m.month">
+                <div class="flex items-center gap-3">
+                  <div class="font-mono w-20 text-gray-600 dark:text-gray-400" x-text="m.month"></div>
+                  <div class="flex-1 bg-gray-100 dark:bg-gray-700 rounded h-3 overflow-hidden">
+                    <div class="h-full bg-blue-500 transition-all"
+                         :style="'width: ' + (Math.min(100, (m.count / monthlyMax * 100))) + '%'"></div>
+                  </div>
+                  <div class="font-semibold w-12 text-right dark:text-gray-200" x-text="m.count + '건'"></div>
+                </div>
+              </template>
+            </div>
+          </div>
+        </template>
+        <template x-if="!stats.monthly || stats.monthly.length === 0">
+          <div class="text-sm text-gray-400">아직 데이터가 없습니다.</div>
+        </template>
+      </div>
+
+      <!-- 상담 종류 비중 (도넛 + 막대) -->
+      <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-5">
+        <h2 class="font-semibold mb-3 dark:text-gray-100">📂 상담 종류별 분포</h2>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 items-center">
+          <!-- v2.7.1: 도넛 차트 — 부모 div 에 명시적 width 100% (grid 안에서 0 width 방지) -->
+          <div class="flex items-center justify-center" style="height: 220px; width: 100%;">
+            <div style="position: relative; height: 100%; width: 100%; max-width: 220px;">
+              <canvas x-ref="typeChart"></canvas>
+            </div>
+          </div>
+          <!-- 기존 막대도 함께 -->
+          <div class="space-y-2">
+            <template x-for="t in typeBreakdown" :key="t.key">
+              <div class="flex items-center gap-3">
+                <div class="text-sm w-16 dark:text-gray-200" x-text="t.key"></div>
+                <div class="flex-1 bg-gray-100 dark:bg-gray-700 rounded h-5 overflow-hidden">
+                  <div class="h-full transition-all"
+                       :class="t.color"
+                       :style="'width: ' + Math.round(t.pct) + '%'"></div>
+                </div>
+                <div class="text-xs w-16 text-right dark:text-gray-200">
+                  <span x-text="t.count"></span>건
+                  <span class="text-gray-500" x-text="'(' + Math.round(t.pct) + '%)'"></span>
+                </div>
+              </div>
+            </template>
+          </div>
+        </div>
+      </div>
+
+      <!-- Top 5 고객 -->
+      <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-5">
+        <h2 class="font-semibold mb-3">🏆 상담 횟수 TOP 5</h2>
+        <template x-if="stats.top_clients && stats.top_clients.length > 0">
+          <ol class="space-y-1.5 text-sm">
+            <template x-for="(c, i) in stats.top_clients" :key="c.client_name">
+              <li class="flex items-center gap-3 py-1 border-b border-gray-100 dark:border-gray-700 last:border-0">
+                <span class="text-gray-400 w-6 text-center" x-text="(i + 1) + '.'"></span>
+                <span class="flex-1" x-text="c.client_name || '(이름 없음)'"></span>
+                <span class="font-semibold" x-text="c.count + '건'"></span>
+              </li>
+            </template>
+          </ol>
+        </template>
+        <template x-if="!stats.top_clients || stats.top_clients.length === 0">
+          <div class="text-sm text-gray-400">아직 데이터가 없습니다.</div>
+        </template>
+      </div>
+
+      <!-- ⑯ v3.5.0: 재방문 고객 분석 -->
+      <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-5">
+        <h2 class="font-semibold mb-1 dark:text-gray-100">🔄 재방문 고객</h2>
+        <p class="text-xs text-gray-500 dark:text-gray-400 mb-3">2회 이상 상담 진행한 고객 목록입니다.</p>
+        <template x-if="stats.returning_clients && stats.returning_clients.length > 0">
+          <div>
+            <div class="text-sm font-medium text-blue-700 dark:text-blue-300 mb-2"
+                 x-text="(stats.returning_count || 0) + '명'"></div>
+            <ol class="space-y-1.5 text-sm">
+              <template x-for="(c, i) in stats.returning_clients" :key="c.client_name">
+                <li class="flex items-center gap-3 py-1 border-b border-gray-100 dark:border-gray-700 last:border-0">
+                  <span class="text-gray-400 w-6 text-center" x-text="(i + 1) + '.'"></span>
+                  <span class="flex-1 dark:text-gray-100" x-text="c.client_name || '(이름 없음)'"></span>
+                  <span class="text-xs bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 px-2 py-0.5 rounded-full font-medium"
+                        x-text="c.count + '회'"></span>
+                </li>
+              </template>
+            </ol>
+          </div>
+        </template>
+        <template x-if="!stats.returning_clients || stats.returning_clients.length === 0">
+          <div class="text-sm text-gray-400">재방문 고객이 아직 없습니다.</div>
+        </template>
+      </div>
+
+      <!-- v3.2.0: 계약 단계 퍼널 + 계약률 -->
+      <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-5 col-span-full">
+        <div class="flex items-center justify-between mb-4">
+          <h2 class="font-semibold">📈 계약 단계 퍼널</h2>
+          <template x-if="stats.client_count > 0">
+            <div class="flex items-center gap-2">
+              <span class="text-sm text-gray-500 dark:text-gray-400">계약률</span>
+              <span class="text-lg font-bold text-emerald-600 dark:text-emerald-400"
+                    x-text="(stats.contract_rate || 0) + '%'"></span>
+              <span class="text-xs text-gray-400 dark:text-gray-500"
+                    x-text="'(' + (stats.contracted || 0) + '/' + stats.client_count + '명 계약 이상)'"></span>
+            </div>
+          </template>
+        </div>
+        <template x-if="stats.funnel && stats.funnel.length > 0">
+          <div class="space-y-2">
+            <template x-for="f in stats.funnel" :key="f.stage">
+              <div class="flex items-center gap-3">
+                <div class="w-14 text-sm text-right text-gray-600 dark:text-gray-300 shrink-0"
+                     x-text="f.stage"></div>
+                <div class="flex-1 bg-gray-100 dark:bg-gray-700 rounded-full h-6 overflow-hidden relative">
+                  <div class="h-full rounded-full transition-all duration-500 flex items-center pl-2"
+                       :style="'width: ' + Math.max(funnelBarWidth(f.count), f.count > 0 ? 3 : 0) + '%'"
+                       :class="{
+                         'bg-blue-400': f.stage === '초도',
+                         'bg-indigo-500': f.stage === '디자인',
+                         'bg-violet-500': f.stage === '견적',
+                         'bg-emerald-500': f.stage === '계약',
+                         'bg-teal-500': f.stage === '시공',
+                         'bg-green-500': f.stage === '완료',
+                       }">
+                    <span x-show="f.count > 0"
+                          class="text-white text-xs font-semibold whitespace-nowrap"
+                          x-text="f.count + '명'"></span>
+                  </div>
+                </div>
+                <div class="w-10 text-sm text-gray-500 dark:text-gray-400 shrink-0 text-right"
+                     x-text="stats.client_count > 0 ? Math.round(f.count / stats.client_count * 100) + '%' : '0%'"></div>
+              </div>
+            </template>
+          </div>
+        </template>
+        <template x-if="!stats.funnel || stats.funnel.length === 0">
+          <div class="text-sm text-gray-400">아직 고객 데이터가 없습니다.</div>
+        </template>
+        <div class="mt-3 text-xs text-gray-400 dark:text-gray-500">
+          💡 계약률 = 계약·시공·완료 단계 고객 수 / 전체 고객 수. 단계는 홈 화면 고객 카드에서 변경 가능합니다.
+        </div>
+      </div>
+    </div>
+
+    <div x-show="!loading && error" x-cloak class="bg-red-50 border border-red-300 dark:border-red-700 text-red-900 dark:text-red-200 rounded-lg p-4 text-sm"
+         x-text="error"></div>
+
+  </main>
+</div>
+
+<script>
+function statsPage() {
+  return {
+    loading: true,
+    stats: null,
+    error: '',
+
+    // v2.5.6 O2: Ollama 가용성 (헤더 배지)
+    ollamaState: 'checking',
+    ollamaInfo: null,
+
+    async init() {
+      this.checkOllamaHealth();  // 백그라운드
+      await this.load();
+    },
+    async checkOllamaHealth() {
+      try {
+        const r = await fetch('/api/ollama/health');
+        const data = await r.json().catch(() => null);
+        if (!data) { this.ollamaState = 'no_ollama'; return; }
+        this.ollamaInfo = data;
+        if (!data.ok) this.ollamaState = 'no_ollama';
+        else if (!data.model_ready) this.ollamaState = 'no_model';
+        else this.ollamaState = 'ok';
+      } catch (e) { this.ollamaState = 'no_ollama'; }
+    },
+
+    async load() {
+      this.loading = true;
+      this.error = '';
+      try {
+        const r = await fetch('/api/stats');
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        this.stats = await r.json();
+      } catch (e) {
+        this.error = '통계 로드 실패: ' + (e.message || e);
+      } finally {
+        this.loading = false;
+      }
+      // v2.8.2: IntersectionObserver 기반으로 교체 — canvas 가 실제로 보이는 순간에만 렌더
+      // $nextTick + offsetWidth 체크는 브라우저 레이아웃 확정 전에 실행되어 불안정했음
+      this.$nextTick(() => this._scheduleChartRender());
+    },
+
+    _chartMonthly: null,
+    _chartType: null,
+    _chartRenderScheduled: false,
+
+    _scheduleChartRender() {
+      if (this._chartRenderScheduled) return;
+      this._chartRenderScheduled = true;
+
+      // Chart.js 아직 로드 안 됨 — 최대 3초 대기 후 재시도
+      if (typeof Chart === 'undefined') {
+        let waited = 0;
+        const waitChart = setInterval(() => {
+          waited += 100;
+          if (typeof Chart !== 'undefined') {
+            clearInterval(waitChart);
+            this._scheduleChartRender();
+          } else if (waited >= 3000) {
+            clearInterval(waitChart);
+            console.warn('[stats] Chart.js CDN 로드 실패 — 막대 그래프만 표시');
+          }
+        }, 100);
+        this._chartRenderScheduled = false;
+        return;
+      }
+
+      const cv2 = this.$refs.typeChart;
+      if (!cv2) {
+        // canvas 아직 DOM 없음 — 100ms 후 재시도 (최대 3초)
+        let retries = 0;
+        const wait = setInterval(() => {
+          retries++;
+          const el = this.$refs.typeChart;
+          if (el) { clearInterval(wait); this._renderCharts(); }
+          else if (retries >= 30) { clearInterval(wait); }
+        }, 100);
+        return;
+      }
+
+      // IntersectionObserver — canvas 가 viewport 에 보이는 순간 렌더
+      // offsetWidth 를 직접 체크하는 것보다 훨씬 신뢰성 높음
+      const rect = cv2.getBoundingClientRect();
+      if (rect.width > 0 && rect.height === 0) {
+        // width 있지만 height 0 → 부모 height 계산 안 됐을 수 있음, 1프레임 더 대기
+        requestAnimationFrame(() => requestAnimationFrame(() => this._renderCharts()));
+        return;
+      }
+      if (rect.width > 0) {
+        // 이미 보임 — 즉시 렌더
+        this._renderCharts();
+        return;
+      }
+
+      // 아직 숨김 (display:none 또는 viewport 밖) — Intersection 감지
+      const io = new IntersectionObserver((entries) => {
+        if (entries[0].isIntersecting || entries[0].boundingClientRect.width > 0) {
+          io.disconnect();
+          // 레이아웃 확정 후 1프레임 여유
+          requestAnimationFrame(() => requestAnimationFrame(() => this._renderCharts()));
+        }
+      }, { threshold: 0 });
+      io.observe(cv2);
+
+      // 폴백: 최대 3초 후 강제 렌더 시도 (IntersectionObserver 가 안 뜨는 엣지케이스)
+      setTimeout(() => { io.disconnect(); this._renderCharts(); }, 3000);
+    },
+    _renderCharts() {
+      const isDark = document.documentElement.classList.contains('dark');
+      const fg = isDark ? '#e5e7eb' : '#374151';
+      const grid = isDark ? 'rgba(75,85,99,0.3)' : 'rgba(229,231,235,0.8)';
+
+      // 1) 월별 라인 차트 — destroy 안 하고 update only (이미 있으면)
+      try {
+        const cv = this.$refs.monthlyChart;
+        if (cv && this.stats && this.stats.monthly && this.stats.monthly.length > 0) {
+          const labels = this.stats.monthly.map(m => m.month);
+          const data = this.stats.monthly.map(m => m.count);
+          if (this._chartMonthly) {
+            // 데이터만 갱신
+            this._chartMonthly.data.labels = labels;
+            this._chartMonthly.data.datasets[0].data = data;
+            this._chartMonthly.update('none');
+          } else {
+            this._chartMonthly = new Chart(cv, {
+              type: 'line',
+              data: {
+                labels,
+                datasets: [{
+                  label: '상담 건수',
+                  data,
+                  borderColor: '#2563eb',
+                  backgroundColor: 'rgba(37, 99, 235, 0.15)',
+                  tension: 0.3,
+                  fill: true,
+                  pointRadius: 4,
+                  pointBackgroundColor: '#2563eb',
+                }],
+              },
+              options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { display: false } },
+                scales: {
+                  x: { ticks: { color: fg }, grid: { color: grid } },
+                  y: { beginAtZero: true, ticks: { color: fg, stepSize: 1 }, grid: { color: grid } },
+                },
+              },
+            });
+          }
+        }
+      } catch (e) { console.warn('[stats] monthly chart render fail:', e); }
+
+      // 2) 종류별 도넛 — destroy 안 하고 update only
+      try {
+        const cv2 = this.$refs.typeChart;
+        const tb = this.typeBreakdown;
+        if (!cv2 || !tb || tb.length === 0) {
+          console.log('[stats] type chart skip — canvas:', !!cv2, 'tb.len:', tb && tb.length);
+          return;
+        }
+        const colorMap = {
+          'bg-amber-500':   '#f59e0b',
+          'bg-blue-500':    '#3b82f6',
+          'bg-emerald-500': '#10b981',
+          'bg-purple-500':  '#a855f7',
+          'bg-red-500':     '#ef4444',
+          'bg-indigo-500':  '#6366f1',
+          'bg-gray-400':    '#9ca3af',
+        };
+        const labels = tb.map(t => t.key);
+        const data = tb.map(t => t.count);
+        const colors = tb.map(t => colorMap[t.color] || '#6b7280');
+
+        if (this._chartType) {
+          // 데이터/색상만 갱신 — destroy 안 함 → 사라지지 않음
+          this._chartType.data.labels = labels;
+          this._chartType.data.datasets[0].data = data;
+          this._chartType.data.datasets[0].backgroundColor = colors;
+          this._chartType.data.datasets[0].borderColor = isDark ? '#1f2937' : '#ffffff';
+          this._chartType.update('none');
+        } else {
+          this._chartType = new Chart(cv2, {
+            type: 'doughnut',
+            data: {
+              labels,
+              datasets: [{
+                data,
+                backgroundColor: colors,
+                borderWidth: 2,
+                borderColor: isDark ? '#1f2937' : '#ffffff',
+              }],
+            },
+            options: {
+              responsive: true,
+              maintainAspectRatio: false,
+              cutout: '60%',
+              plugins: {
+                legend: { position: 'bottom', labels: { color: fg, padding: 8, boxWidth: 12, font: { size: 11 } } },
+                tooltip: {
+                  callbacks: {
+                    label: (ctx) => `${ctx.label}: ${ctx.parsed}건 (${(ctx.parsed / ctx.dataset.data.reduce((a,b)=>a+b,0) * 100).toFixed(0)}%)`,
+                  },
+                },
+              },
+            },
+          });
+        }
+      } catch (e) { console.warn('[stats] type chart render fail:', e); }
+    },
+
+    get monthlyMax() {
+      if (!this.stats || !this.stats.monthly || !this.stats.monthly.length) return 1;
+      return Math.max(1, ...this.stats.monthly.map(m => m.count));
+    },
+
+    get typeBreakdown() {
+      if (!this.stats || !this.stats.by_meeting_type) return [];
+      const byType = this.stats.by_meeting_type;
+      const total = Object.values(byType).reduce((s, v) => s + v, 0) || 1;
+      const colors = {
+        '초도상담': 'bg-amber-500',
+        '디자인미팅': 'bg-emerald-500',
+        '견적미팅': 'bg-purple-500',
+      };
+      return Object.entries(byType).map(([k, v]) => ({
+        key: k, count: v, pct: (v / total * 100), color: colors[k] || 'bg-gray-400',
+      }));
+    },
+
+    // v3.2.0: 퍼널 바 너비 계산 (최대값 기준 100%)
+    funnelBarWidth(count) {
+      if (!this.stats || !this.stats.funnel || !this.stats.client_count) return 0;
+      const max = Math.max(1, ...this.stats.funnel.map(f => f.count));
+      return count / max * 100;
+    },
+  };
+}
+</script>
+  <script src="/static/remote_status_badge.js"></script>
+</body>
+</html>

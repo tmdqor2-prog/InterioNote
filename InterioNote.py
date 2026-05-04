@@ -17,6 +17,111 @@ import threading
 import time
 from pathlib import Path
 
+
+# ============================================
+# Phase 7B-2 v2: Windows 11 26200+ 대응
+# windowed 부트로더(runw.exe)가 silent 차단되는 이슈 때문에
+# console=True 로 빌드하되 시작 즉시 console 을 detach 해서
+# 작업표시줄에 cmd 창이 남지 않게 함.
+# spec 의 hide_console 옵션이 일부 환경에서 minimize 로만 동작하는 보완.
+# ============================================
+def _detach_console_on_windows() -> None:
+    """
+    Phase 7B-2 v2 + v2.4.6 fix:
+    - hide console window (SW_HIDE)
+    - redirect stdout/stderr at OS level (os.dup2) so C extensions like ctranslate2
+      that write to raw fd 1/2 don't crash with [Errno 9] Bad file descriptor
+    - DO NOT call FreeConsole() — that invalidates fd 1/2 which native code may use
+    """
+    if os.name != "nt":
+        return
+    # dev mode: keep cmd attached
+    if not getattr(sys, "frozen", False):
+        return
+    try:
+        # v2.5.4: 진짜 해결책 — fd 먼저 redirect → 그 다음 FreeConsole.
+        # 이전 시행착오:
+        #  - SW_HIDE 만 → 작업표시줄에 minimize 형태로 남음
+        #  - WS_EX_TOOLWINDOW + SetWindowPos → 일부 환경에서 여전히 taskbar entry
+        #  - FreeConsole 직접 호출 → ctranslate2 가 raw fd 에 쓰면 EBADF
+        # 정답: dup2 로 fd 1,2 를 log 파일로 옮긴 뒤 FreeConsole 호출.
+        # → console window 자체가 destroy 됨 (taskbar entry 원천 방지).
+        # → fd 1,2 는 log 파일 가리키므로 native code 가 써도 안전.
+
+        # Step 1: 로그 파일 열기 + fd 1,2 redirect (FreeConsole 전에)
+        try:
+            appdata = os.environ.get("APPDATA")
+            if appdata:
+                log_dir = os.path.join(appdata, "InterioNote")
+                os.makedirs(log_dir, exist_ok=True)
+                log_path = os.path.join(log_dir, "app.log")
+            else:
+                log_path = os.devnull
+
+            log_fd = os.open(log_path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o644)
+            try:
+                os.dup2(log_fd, 1)
+                os.dup2(log_fd, 2)
+            finally:
+                try:
+                    os.close(log_fd)
+                except OSError:
+                    pass
+
+            try:
+                sys.stdout = os.fdopen(1, "w", encoding="utf-8", buffering=1, closefd=False)
+                sys.stderr = os.fdopen(2, "w", encoding="utf-8", buffering=1, closefd=False)
+            except Exception:
+                pass
+
+            try:
+                from datetime import datetime as _dt
+                msg = (
+                    "\n" + "=" * 60 + "\n"
+                    + f"=== InterioNote start: {_dt.now().isoformat(timespec='seconds')} ===\n"
+                    + "=" * 60 + "\n"
+                )
+                sys.stdout.write(msg)
+                sys.stdout.flush()
+            except Exception:
+                pass
+        except Exception:
+            # log 파일 못 열면 fallback to NUL via dup2 (native fd 안전 보장)
+            try:
+                nul_fd = os.open(os.devnull, os.O_WRONLY)
+                os.dup2(nul_fd, 1)
+                os.dup2(nul_fd, 2)
+                os.close(nul_fd)
+            except Exception:
+                pass
+
+        # Step 2: 이제 FreeConsole 안전하게 호출 가능 — fd 1,2 가 console 안 가리킴.
+        # FreeConsole 이 console window 를 destroy → taskbar entry 자체가 사라짐.
+        try:
+            import ctypes
+            kernel32 = ctypes.windll.kernel32
+            user32 = ctypes.windll.user32
+            # 1) 먼저 hide (FreeConsole 전 잠깐의 시각적 깜빡임 줄임)
+            try:
+                hwnd = kernel32.GetConsoleWindow()
+                if hwnd:
+                    user32.ShowWindow(hwnd, 0)  # SW_HIDE
+            except Exception:
+                pass
+            # 2) FreeConsole — process 에서 console 분리 + window destroy
+            try:
+                kernel32.FreeConsole()
+            except Exception:
+                pass
+        except Exception:
+            pass
+    except Exception:
+        pass
+
+
+_detach_console_on_windows()
+
+
 # --- 프로젝트 루트를 import path 에 추가 (dev/pyinstaller 양쪽 대응) ---
 HERE = Path(__file__).resolve().parent
 if str(HERE) not in sys.path:
@@ -59,9 +164,11 @@ def _run_server(port: int) -> None:
     from app.server import create_app
 
     fastapi_app = create_app()
+    # v3.5.2: host="0.0.0.0" 으로 LAN 노출 (QR 스마트폰 스캔용 + 향후 multi-device 활용)
+    # 인증 미들웨어로 보호되며, /print-summary 만 화이트리스트 → 보안 영향 최소
     config = uvicorn.Config(
         fastapi_app,
-        host="127.0.0.1",
+        host="0.0.0.0",
         port=port,
         log_level="warning",
         access_log=False,
@@ -139,6 +246,34 @@ def main() -> int:
                 return str(first)
             except Exception as e:
                 log.error(f"pick_folder 실패: {type(e).__name__}: {e}")
+                return {"error": f"{type(e).__name__}: {e}"}
+
+        def pick_file(self, ext: str = "xlsx", initial_dir: str = ""):
+            """v2.6.0: xlsx 등 단일 파일 선택 (OJT 연동 마법사용)."""
+            try:
+                w = self._window
+                if w is None:
+                    return {"error": "윈도우 핸들이 아직 준비되지 않았습니다."}
+                ext = (ext or "xlsx").lstrip(".").lower()
+                # 한국어 이름 + 확장자 패턴
+                if ext in ("xlsx", "xls", "xlsm"):
+                    file_types = ("Excel 파일 (*.xlsx;*.xlsm;*.xls)", "All files (*.*)")
+                else:
+                    file_types = (f"{ext.upper()} 파일 (*.{ext})", "All files (*.*)")
+                kwargs = {"file_types": file_types}
+                if initial_dir and Path(initial_dir).exists():
+                    kwargs["directory"] = initial_dir
+                paths = w.create_file_dialog(
+                    webview.OPEN_DIALOG,
+                    allow_multiple=False,
+                    **kwargs,
+                )
+                if not paths:
+                    return ""  # 취소
+                first = paths[0] if isinstance(paths, (list, tuple)) else paths
+                return str(first)
+            except Exception as e:
+                log.error(f"pick_file 실패: {type(e).__name__}: {e}")
                 return {"error": f"{type(e).__name__}: {e}"}
 
         def open_in_explorer(self, path: str):

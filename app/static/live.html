@@ -5,6 +5,58 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>녹음 · InterioNote</title>
   <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    // v2.5.0 dark mode
+    tailwind.config = { darkMode: 'class' };
+    (function() {
+      try {
+        var t = localStorage.getItem('interionote.theme') || 'system';
+        var dark = (t === 'dark') ||
+          (t === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+        if (dark) document.documentElement.classList.add('dark');
+      } catch(e) {}
+    })();
+  </script>
+  <!-- v3.0.0 Phase 2: 인증 (fetch 오버라이드 + 즉시 토큰 확인) -->
+  <script>
+  (function(){
+    var _origFetch = window.fetch.bind(window);
+    window.fetch = async function(resource, opts){
+      opts = opts ? Object.assign({}, opts) : {};
+      if (typeof resource === 'string' && resource.startsWith('/api/')) {
+        var tok = localStorage.getItem('interionote.token');
+        if (tok) opts.headers = Object.assign({'Authorization': 'Bearer ' + tok}, opts.headers || {});
+      }
+      var r = await _origFetch(resource, opts);
+      if (r.status === 401 && window.location.pathname !== '/login') {
+        localStorage.removeItem('interionote.token');
+        localStorage.removeItem('interionote.user');
+        window.location.replace('/login');
+      }
+      return r;
+    };
+    if (window.location.pathname !== '/login') {
+      var tok = localStorage.getItem('interionote.token');
+      if (!tok) { window.location.replace('/login'); return; }
+      try {
+        var p = JSON.parse(atob(tok.split('.')[1].replace(/-/g,'+').replace(/_/g,'/')));
+        if (p.exp && Date.now()/1000 > p.exp) {
+          localStorage.removeItem('interionote.token');
+          localStorage.removeItem('interionote.user');
+          window.location.replace('/login');
+        }
+      } catch(e) {}
+    }
+    window.getAuthUser = function(){
+      try { return JSON.parse(localStorage.getItem('interionote.user') || 'null'); } catch(e){ return null; }
+    };
+    window.logoutUser = function(){
+      localStorage.removeItem('interionote.token');
+      localStorage.removeItem('interionote.user');
+      window.location.replace('/login');
+    };
+  })();
+  </script>
   <script defer src="https://unpkg.com/alpinejs@3.14.1/dist/cdn.min.js"></script>
   <style>
     body { font-family: 'Segoe UI', 'Malgun Gothic', system-ui, sans-serif; }
@@ -16,23 +68,112 @@
       from { opacity: 0; transform: translateY(8px); }
       to { opacity: 1; transform: translateY(0); }
     }
+    /* v2.5.2: 녹음 중 화면 가장자리 빨간 펄스 테두리 */
+    .recording-frame {
+      pointer-events: none;
+      position: fixed; inset: 0;
+      border: 4px solid rgba(239, 68, 68, 0);
+      box-shadow: inset 0 0 0 0 rgba(239, 68, 68, 0);
+      transition: border-color 0.3s, box-shadow 0.3s;
+      z-index: 999;
+      animation: rec-frame-pulse 2.4s ease-in-out infinite;
+    }
+    @keyframes rec-frame-pulse {
+      0%, 100% { border-color: rgba(239, 68, 68, 0.4); box-shadow: inset 0 0 24px 0 rgba(239, 68, 68, 0.15); }
+      50%      { border-color: rgba(239, 68, 68, 0.8); box-shadow: inset 0 0 40px 4px rgba(239, 68, 68, 0.30); }
+    }
+    /* v2.5.2: 새 카드 도착 시 잠깐 강조 */
+    .card-flash {
+      animation: card-flash 1.6s ease-out;
+    }
+    @keyframes card-flash {
+      0%   { background-color: rgba(251, 191, 36, 0.35); }
+      100% { background-color: transparent; }
+    }
+    /* v2.5.4 다크모드 보강 — 액센트 박스를 더 어둡게 + 텍스트 contrast 강화 */
+    html.dark code { color: #f3f4f6; background-color: #374151; }
+    html.dark kbd { color: #f3f4f6; background-color: #374151; border-color: #4b5563; }
+    html.dark input, html.dark select, html.dark textarea { color-scheme: dark; }
+    html.dark input::placeholder, html.dark textarea::placeholder { color: #9ca3af; }
+    html.dark ::-webkit-scrollbar { background: #1f2937; }
+    html.dark ::-webkit-scrollbar-thumb { background: #4b5563; border-radius: 4px; }
+    html.dark ::-webkit-scrollbar-thumb:hover { background: #6b7280; }
+
+    /* 다크모드에서 너무 밝게 보이던 50/100 액센트 배경들 — 강력 override */
+    html.dark .bg-amber-50  { background-color: rgba(120, 53, 15, 0.25) !important; }
+    html.dark .bg-amber-100 { background-color: rgba(120, 53, 15, 0.40) !important; }
+    html.dark .bg-blue-50   { background-color: rgba(30, 58, 138, 0.25) !important; }
+    html.dark .bg-blue-100  { background-color: rgba(30, 58, 138, 0.40) !important; }
+    html.dark .bg-indigo-50 { background-color: rgba(49, 46, 129, 0.25) !important; }
+    html.dark .bg-emerald-50  { background-color: rgba(6, 78, 59, 0.30) !important; }
+    html.dark .bg-emerald-100 { background-color: rgba(6, 78, 59, 0.45) !important; }
+    html.dark .bg-green-50  { background-color: rgba(20, 83, 45, 0.30) !important; }
+    html.dark .bg-green-100 { background-color: rgba(20, 83, 45, 0.45) !important; }
+    html.dark .bg-red-50    { background-color: rgba(127, 29, 29, 0.25) !important; }
+    html.dark .bg-red-100   { background-color: rgba(127, 29, 29, 0.40) !important; }
+    html.dark .bg-purple-50 { background-color: rgba(76, 29, 149, 0.25) !important; }
+    html.dark .bg-purple-100 { background-color: rgba(76, 29, 149, 0.40) !important; }
+    html.dark .bg-yellow-50 { background-color: rgba(113, 63, 18, 0.25) !important; }
+
+    /* 액센트 박스 안의 텍스트 contrast 강화 — 어두운 배경 위 밝은 텍스트 */
+    html.dark .text-amber-900,
+    html.dark .text-amber-800,
+    html.dark .text-amber-700 { color: #fde68a !important; }   /* amber-200 */
+    html.dark .text-blue-900,
+    html.dark .text-blue-800 { color: #bfdbfe !important; }    /* blue-200 */
+    html.dark .text-blue-700 { color: #93c5fd !important; }    /* blue-300 */
+    html.dark .text-emerald-900,
+    html.dark .text-emerald-800 { color: #a7f3d0 !important; } /* emerald-200 */
+    html.dark .text-emerald-700 { color: #6ee7b7 !important; } /* emerald-300 */
+    html.dark .text-green-900,
+    html.dark .text-green-800 { color: #bbf7d0 !important; }   /* green-200 */
+    html.dark .text-green-700 { color: #86efac !important; }   /* green-300 */
+    html.dark .text-red-900,
+    html.dark .text-red-800 { color: #fecaca !important; }     /* red-200 */
+    html.dark .text-red-700 { color: #fca5a5 !important; }     /* red-300 */
+    html.dark .text-purple-900,
+    html.dark .text-purple-800 { color: #e9d5ff !important; }  /* purple-200 */
+    html.dark .text-indigo-900 { color: #c7d2fe !important; }
+
+    /* 일반 회색 텍스트 — 어두운 카드 위에서 더 밝게 */
+    html.dark .text-gray-900 { color: #f3f4f6 !important; }
+    html.dark .text-gray-800 { color: #e5e7eb !important; }
+    html.dark .text-gray-700 { color: #d1d5db !important; }
+    html.dark .text-gray-600 { color: #9ca3af !important; }
+    html.dark .text-gray-500 { color: #9ca3af !important; }
+    html.dark .text-gray-400 { color: #6b7280 !important; }
+
+    /* 액센트 border 도 더 옅게 (눈부심 방지) */
+    html.dark .border-amber-200,
+    html.dark .border-amber-300 { border-color: rgba(180, 83, 9, 0.50) !important; }
+    html.dark .border-blue-200,
+    html.dark .border-blue-300 { border-color: rgba(29, 78, 216, 0.50) !important; }
+    html.dark .border-emerald-200,
+    html.dark .border-emerald-300 { border-color: rgba(5, 150, 105, 0.50) !important; }
+    html.dark .border-red-200,
+    html.dark .border-red-300 { border-color: rgba(220, 38, 38, 0.50) !important; }
+    html.dark .border-green-200,
+    html.dark .border-green-300 { border-color: rgba(22, 163, 74, 0.50) !important; }
   </style>
 </head>
-<body class="bg-gray-50 text-gray-900">
+<body class="bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100">
 
 <div x-data="livePage()" x-init="init()" class="min-h-screen flex flex-col">
 
+<!-- v2.5.2: 녹음 중 화면 가장자리 빨간 펄스 테두리 (다른 화면 잠깐 봐도 녹음 중 인지 가능) -->
+<div x-show="mode === 'recording'" x-cloak class="recording-frame"></div>
+
   <!-- Header -->
-  <header class="bg-white border-b border-gray-200 sticky top-0 z-10">
+  <header class="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 sticky top-0 z-10">
     <div class="max-w-5xl mx-auto px-6 py-3 flex items-center justify-between gap-3">
       <div class="flex items-center gap-3 min-w-0">
-        <a href="/" class="text-gray-400 hover:text-gray-700 shrink-0">← 홈</a>
+        <a href="/" class="text-gray-400 hover:text-gray-700 dark:text-gray-200 shrink-0">← 홈</a>
         <template x-if="!meetingId">
           <h1 class="text-lg font-bold">🧪 녹음·전사 테스트 (Phase 2)</h1>
         </template>
         <template x-if="meetingId">
           <div class="min-w-0">
-            <div class="text-[11px] text-gray-500 uppercase tracking-wide">
+            <div class="text-[11px] text-gray-500 dark:text-gray-400 dark:text-gray-500 uppercase tracking-wide">
               <span x-text="meetingInfo.meeting_type || '상담'"></span>
             </div>
             <div class="font-bold truncate" x-text="meetingInfo.client_display || '...'"></div>
@@ -44,7 +185,7 @@
         <!-- 모델 상태 -->
         <span
           :class="{
-            'text-gray-500': warmup === 'idle',
+            'text-gray-500 dark:text-gray-400 dark:text-gray-500': warmup === 'idle',
             'text-blue-600': warmup === 'loading',
             'text-green-700': warmup === 'ready',
             'text-red-700': warmup === 'error'
@@ -57,7 +198,31 @@
             :class="wsConnected ? 'bg-green-500' : 'bg-gray-300'"></span>
           <span x-text="wsConnected ? 'WS 연결' : 'WS 재연결 중'"></span>
         </span>
-        <span class="text-gray-400" x-show="mode === 'finished' && viewMode" x-cloak>📂 보기 전용</span>
+        <span class="text-gray-400 dark:text-gray-500" x-show="mode === 'finished' && viewMode" x-cloak>📂 보기 전용</span>
+
+        <!-- v2.5.6 O2: Ollama 가용성 미니 배지 (클릭 시 안내 모달) -->
+        <button @click="showOllamaSetupModal = true; if (ollamaState === 'checking') checkOllamaHealth();"
+                class="flex items-center gap-1 px-1.5 py-0.5 border border-gray-200 dark:border-gray-700 rounded hover:bg-gray-50 dark:hover:bg-gray-700 transition"
+                :title="ollamaState === 'ok' ? 'AI 분석 준비 완료 (Ollama 정상)'
+                      : ollamaState === 'no_model' ? 'Ollama 모델 없음 — 클릭해서 안내 보기'
+                      : ollamaState === 'no_ollama' ? 'Ollama 미설치 — 클릭해서 설치 안내 보기'
+                      : '확인 중...'">
+          <span class="w-2 h-2 rounded-full"
+                :class="{
+                  'bg-emerald-500': ollamaState === 'ok',
+                  'bg-amber-500': ollamaState === 'no_model',
+                  'bg-red-500': ollamaState === 'no_ollama',
+                  'bg-gray-300 animate-pulse': ollamaState === 'checking'
+                }"></span>
+          <span class="text-[11px] text-gray-600 dark:text-gray-300">AI</span>
+        </button>
+
+        <!-- v2.5.6 P4: 도움말 버튼 (F1 안 먹는 환경 대비 + 마우스 사용자) -->
+        <button @click="showShortcutHelp = !showShortcutHelp"
+                class="px-1.5 py-0.5 border border-gray-200 dark:border-gray-700 rounded hover:bg-gray-50 dark:hover:bg-gray-700 transition text-gray-600 dark:text-gray-300"
+                title="단축키 도움말 (F1)">
+          ❓
+        </button>
       </div>
     </div>
   </header>
@@ -67,80 +232,145 @@
     <!-- ============ SETUP ============ -->
     <section x-show="mode === 'setup'" x-cloak class="space-y-4">
       <div x-show="warmupError" x-cloak
-        class="bg-red-50 border border-red-300 rounded-lg p-4 text-sm">
-        <div class="font-semibold text-red-900 mb-1">⚠ 모델 로드 실패</div>
-        <div class="text-xs font-mono text-red-900 whitespace-pre-wrap break-all"
+        class="bg-red-50 border border-red-300 dark:border-red-700 rounded-lg p-4 text-sm">
+        <div class="font-semibold text-red-900 dark:text-red-200 mb-1">⚠ 모델 로드 실패</div>
+        <div class="text-xs font-mono text-red-900 dark:text-red-200 whitespace-pre-wrap break-all"
              x-text="warmupError"></div>
         <button @click="warmupModels(true)"
-          class="mt-2 text-xs px-3 py-1.5 border border-red-300 rounded-md hover:bg-red-100">
+          class="mt-2 text-xs px-3 py-1.5 border border-red-300 dark:border-red-700 rounded-md hover:bg-red-100 dark:bg-red-800/40">
           다시 시도
         </button>
       </div>
 
-      <div class="bg-white rounded-xl border border-gray-200 p-6">
+      <div class="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-6">
         <div class="flex items-center justify-between mb-3">
           <h2 class="font-semibold">🎙 마이크 선택</h2>
-          <button @click="loadDevices()" class="text-xs text-blue-600 hover:underline">
+          <button @click="loadDevices()" class="text-xs text-blue-600 dark:text-blue-400 hover:underline">
             새로고침
           </button>
         </div>
         <div class="space-y-2">
           <template x-for="d in devices" :key="d.id">
             <label
-              :class="deviceId === d.id ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:border-blue-300'"
+              :class="deviceId === d.id ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/30' : 'border-gray-200 dark:border-gray-700 hover:border-blue-300'"
               class="flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition">
               <input type="radio" name="device" :value="d.id" x-model.number="deviceId" class="mt-1" />
               <div class="flex-1 min-w-0">
                 <div class="font-medium truncate" x-text="d.name"></div>
-                <div class="text-xs text-gray-500 mt-0.5">
+                <div class="text-xs text-gray-500 dark:text-gray-400 dark:text-gray-500 mt-0.5">
                   ch <span x-text="d.max_input_channels"></span> ·
                   <span x-text="d.default_samplerate"></span> Hz
                   <span x-show="d.is_default"
-                    class="ml-1 px-1.5 py-0.5 bg-green-100 text-green-700 rounded text-[10px] font-medium">기본</span>
+                    class="ml-1 px-1.5 py-0.5 bg-green-100 dark:bg-green-800/40 text-green-700 dark:text-green-300 rounded text-[10px] font-medium">기본</span>
                 </div>
               </div>
             </label>
           </template>
-          <div x-show="devices.length === 0" class="text-sm text-gray-400 italic p-3">
+          <div x-show="devices.length === 0" class="text-sm text-gray-400 dark:text-gray-500 italic p-3">
             마이크 장치를 불러오는 중이거나 감지되지 않습니다.
           </div>
         </div>
       </div>
 
+      <!-- v2.7.0 D: 마이크 레벨 미터 (녹음 시작 전 입력 음성 시각 확인) -->
+      <div class="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
+        <div class="flex items-center justify-between mb-2">
+          <div class="font-semibold flex items-center gap-2 dark:text-gray-100">
+            <span>📶</span> 마이크 입력 점검
+            <span class="text-[11px] text-gray-400 dark:text-gray-500 font-normal">(녹음 시작 전 마이크가 잡히는지 확인)</span>
+          </div>
+          <button @click="micMeterActive ? stopMicMeter() : startMicMeter()"
+                  class="text-xs px-2.5 py-1 border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-700 dark:text-gray-200">
+            <span x-show="!micMeterActive">▶ 점검 시작</span>
+            <span x-show="micMeterActive" x-cloak>■ 점검 중지</span>
+          </button>
+        </div>
+        <div x-show="micMeterError" x-cloak class="text-xs text-red-700 dark:text-red-300 mb-2" x-text="micMeterError"></div>
+        <!-- 입력 레벨 막대 (v2.7.1: dB log 스케일 — 음성에서 50~80% 차오름) -->
+        <div class="bg-gray-100 dark:bg-gray-900 rounded h-3 overflow-hidden">
+          <div class="h-full transition-all duration-75"
+               :style="'width: ' + Math.min(100, micLevel * 100) + '%'"
+               :class="micLevel < 0.15 ? 'bg-gray-400' : (micLevel < 0.85 ? 'bg-emerald-500' : 'bg-red-500')"></div>
+        </div>
+        <div class="text-[11px] text-gray-500 dark:text-gray-400 mt-1.5 flex items-center justify-between">
+          <span>
+            <template x-if="!micMeterActive">
+              <span>[▶ 점검 시작] 누르고 마이크 앞에서 한 마디 해보세요.</span>
+            </template>
+            <template x-if="micMeterActive && micLevel < 0.15">
+              <span class="text-red-600 dark:text-red-400 font-semibold">🔇 입력 신호 거의 없음 — 마이크 위치/연결/볼륨 확인</span>
+            </template>
+            <template x-if="micMeterActive && micLevel >= 0.15 && micLevel < 0.85">
+              <span class="text-emerald-700 dark:text-emerald-400">✓ 정상 입력 (녹음에 적합)</span>
+            </template>
+            <template x-if="micMeterActive && micLevel >= 0.85">
+              <span class="text-red-700 dark:text-red-400">⚠ 입력 너무 큼 — 클리핑 위험, 마이크 멀리</span>
+            </template>
+          </span>
+          <span x-show="micMeterActive" x-cloak class="font-mono tabular-nums" x-text="Math.round(micLevel * 100) + '%'"></span>
+        </div>
+      </div>
+
       <div x-show="errorMsg" x-cloak
-        class="bg-red-50 border border-red-300 text-red-900 rounded-lg p-4 text-sm"
+        class="bg-red-50 border border-red-300 dark:border-red-700 text-red-900 dark:text-red-200 rounded-lg p-4 text-sm"
         x-text="errorMsg"></div>
+
+      <!-- v3.2.0 Phase 4: 준비 노트 (상담 전 메모) -->
+      <template x-if="meetingId">
+        <div class="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl p-4">
+          <div class="flex items-center justify-between mb-2">
+            <div class="text-sm font-semibold text-amber-800 dark:text-amber-300">📝 상담 전 준비 메모</div>
+            <div class="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1">
+              <span x-show="preNotesSaving" x-cloak>저장 중...</span>
+              <span x-show="preNotesSaved" x-cloak>✓ 저장됨</span>
+            </div>
+          </div>
+          <textarea x-model="preNotesText"
+                    @input="schedulePreNotesSave()"
+                    placeholder="예) 지난 상담에서 거실 확장 관심 있다고 하심. 오늘 3D 렌더 보여드릴 것. 예산 질문 먼저 확인."
+                    rows="3"
+                    class="w-full text-sm border border-amber-200 dark:border-amber-700 rounded-lg px-3 py-2 resize-none bg-white dark:bg-gray-800 dark:text-gray-100 focus:outline-none focus:border-amber-400"></textarea>
+          <div class="text-xs text-amber-600 dark:text-amber-500 mt-1">🔒 이 메모는 저장되며 상담 완료 화면에서도 볼 수 있습니다.</div>
+        </div>
+      </template>
 
       <button @click="startRecording()"
         :disabled="!canStart"
         :class="canStart ? 'bg-red-600 hover:bg-red-700' : 'bg-gray-300 cursor-not-allowed'"
         class="w-full py-4 text-white text-lg font-bold rounded-xl shadow-sm transition">
         <span x-show="warmup !== 'ready'">모델 준비 중...</span>
-        <span x-show="warmup === 'ready' && !starting">● 녹음 시작</span>
-        <span x-show="starting">시작 중...</span>
+        <span x-show="warmup === 'ready' && !starting && countdownNum === 0">● 녹음 시작</span>
+        <!-- v2.4.2: 시작 카운트다운 -->
+        <span x-show="countdownNum > 0" x-cloak class="text-3xl tracking-widest"
+              x-text="countdownNum"></span>
+        <span x-show="starting && countdownNum === 0">시작 중...</span>
       </button>
+      <p x-show="countdownNum > 0" x-cloak
+         class="text-xs text-amber-700 dark:text-amber-300 text-center font-medium">
+        곧 녹음이 시작됩니다 — 마이크 위치 확인하세요
+      </p>
 
-      <p class="text-xs text-gray-500 text-center" x-show="!meetingId">
+      <p class="text-xs text-gray-500 dark:text-gray-400 dark:text-gray-500 text-center" x-show="!meetingId">
         녹음은 임시 캐시 폴더에 저장됩니다. (고객 연결 없이 단독 테스트 모드)
       </p>
-      <p class="text-xs text-gray-500 text-center" x-show="meetingId" x-cloak>
+      <p class="text-xs text-gray-500 dark:text-gray-400 dark:text-gray-500 text-center" x-show="meetingId" x-cloak>
         녹음이 끝나면 자동으로
         <code class="bg-gray-200 px-1 rounded">상담기록\{날짜}_{상담종류}</code>
         폴더로 이동합니다.
       </p>
 
       <!-- 활성 모듈 표시 -->
-      <div class="text-[11px] text-gray-500 text-center space-x-2" x-show="warmup === 'ready'" x-cloak>
+      <div class="text-[11px] text-gray-500 dark:text-gray-400 dark:text-gray-500 text-center space-x-2" x-show="warmup === 'ready'" x-cloak>
         <span x-show="warmupInfo.whisper_size">
           🎙 모델: <code x-text="warmupInfo.whisper_size"></code>
         </span>
-        <span x-show="warmupInfo.noise_suppression_enabled" class="text-blue-700">
+        <span x-show="warmupInfo.noise_suppression_enabled" class="text-blue-700 dark:text-blue-300">
           · 🔇 노이즈 제거 <span x-text="warmupInfo.noise_suppression_loaded ? '활성' : '실패'"></span>
         </span>
-        <span x-show="!warmupInfo.noise_suppression_enabled" class="text-gray-400">
+        <span x-show="!warmupInfo.noise_suppression_enabled" class="text-gray-400 dark:text-gray-500">
           · 🔇 노이즈 제거 꺼짐
         </span>
-        <a href="/settings" class="underline hover:text-blue-600">⚙️ 변경</a>
+        <a href="/settings" class="underline hover:text-blue-600 dark:text-blue-400">⚙️ 변경</a>
       </div>
     </section>
 
@@ -148,13 +378,13 @@
     <!-- ============ RECORDING ============ -->
     <section x-show="mode === 'recording'" x-cloak class="space-y-4">
 
-      <!-- 타이머 + 레벨 + 정지 -->
-      <div class="bg-white rounded-xl border border-gray-200 p-5">
+      <!-- v2.5.2: 타이머 + 레벨 + 정지 (sticky — 카드 많이 쌓여도 항상 위에 보임) -->
+      <div class="sticky top-2 z-20 bg-white dark:bg-gray-800 rounded-xl border-2 border-red-300 dark:border-red-700/60 shadow-md p-5">
         <div class="flex items-center justify-between gap-4">
           <div class="flex items-center gap-3">
             <span class="inline-block w-3 h-3 rounded-full bg-red-500 pulse-red"></span>
-            <span class="text-red-600 font-semibold tracking-wider">REC</span>
-            <span class="font-mono text-3xl font-bold tabular-nums ml-2"
+            <span class="text-red-600 dark:text-red-400 font-semibold tracking-wider">REC</span>
+            <span class="font-mono text-3xl font-bold tabular-nums ml-2 dark:text-gray-100"
               x-text="formatTime(liveState.elapsed_sec || 0)"></span>
           </div>
           <button @click="stopRecording()"
@@ -168,96 +398,117 @@
 
         <!-- level bar -->
         <div class="mt-4">
-          <div class="relative h-3 bg-gray-100 rounded-md overflow-hidden">
+          <div class="relative h-3 bg-gray-100 dark:bg-gray-700 rounded-md overflow-hidden">
             <div class="absolute inset-y-0 left-0 transition-all duration-75"
               :style="'width: ' + levelPct + '%'" :class="levelColor"></div>
             <div class="absolute inset-y-0 left-[60%] w-px bg-gray-400/70"></div>
             <div class="absolute inset-y-0 left-[90%] w-px bg-red-400/70"></div>
           </div>
-          <div class="flex justify-between text-[10px] text-gray-500 mt-1 font-mono">
+          <div class="flex justify-between text-[10px] text-gray-500 dark:text-gray-400 dark:text-gray-500 mt-1 font-mono">
             <span>-60dB</span><span>-24</span><span>-6</span><span>0</span>
           </div>
         </div>
 
         <div class="grid grid-cols-4 gap-3 mt-4 text-sm">
           <div class="text-center">
-            <div class="text-gray-500 text-xs">카드</div>
+            <div class="text-gray-500 dark:text-gray-400 dark:text-gray-500 text-xs">카드</div>
             <div class="font-mono tabular-nums" x-text="liveState.segments_count || 0"></div>
           </div>
           <div class="text-center">
-            <div class="text-gray-500 text-xs">Audio Q</div>
+            <div class="text-gray-500 dark:text-gray-400 dark:text-gray-500 text-xs">Audio Q</div>
             <div class="font-mono tabular-nums"
               :class="(liveState.audio_queue_depth || 0) > 100 ? 'text-amber-600' : ''"
               x-text="liveState.audio_queue_depth || 0"></div>
           </div>
           <div class="text-center">
-            <div class="text-gray-500 text-xs">Speech Q</div>
+            <div class="text-gray-500 dark:text-gray-400 dark:text-gray-500 text-xs">Speech Q</div>
             <div class="font-mono tabular-nums"
               :class="(liveState.speech_queue_depth || 0) > 3 ? 'text-amber-600' : ''"
               x-text="liveState.speech_queue_depth || 0"></div>
           </div>
           <div class="text-center">
-            <div class="text-gray-500 text-xs">드롭</div>
+            <div class="text-gray-500 dark:text-gray-400 dark:text-gray-500 text-xs">드롭</div>
             <div class="font-mono tabular-nums"
-              :class="(liveState.dropped_blocks || 0) > 0 ? 'text-red-600' : ''"
+              :class="(liveState.dropped_blocks || 0) > 0 ? 'text-red-600 dark:text-red-400' : ''"
               x-text="liveState.dropped_blocks || 0"></div>
           </div>
         </div>
       </div>
 
       <!-- 카드 스트림 -->
-      <div class="bg-white rounded-xl border border-gray-200">
-        <div class="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
+      <div class="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700">
+        <div class="px-5 py-3 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between">
           <h3 class="font-semibold">💬 발화 카드</h3>
-          <div class="text-xs text-gray-500">
+          <div class="text-xs text-gray-500 dark:text-gray-400 dark:text-gray-500">
             <span x-text="segments.length"></span>건 ·
-            <kbd class="px-1 bg-gray-100 border border-gray-300 rounded">1</kbd>=나
-            <kbd class="px-1 bg-gray-100 border border-gray-300 rounded">2</kbd>=고객
-            <kbd class="px-1 bg-gray-100 border border-gray-300 rounded">0</kbd>=지우기
+            <kbd class="px-1 bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded">1</kbd>=나
+            <kbd class="px-1 bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded">2</kbd>=고객
+            <kbd class="px-1 bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded">0</kbd>=지우기
           </div>
         </div>
 
         <div x-show="segments.length === 0" x-cloak
-          class="py-14 text-center text-gray-400 text-sm">
+          class="py-14 text-center text-gray-400 dark:text-gray-500 text-sm">
           <div class="inline-block animate-pulse text-2xl mb-2">👂</div>
           <div>말씀하시면 1~3초 뒤에 카드가 생성됩니다.</div>
         </div>
 
-        <ul class="divide-y divide-gray-100">
+        <ul class="divide-y divide-gray-100 dark:divide-gray-700">
           <template x-for="(s, idx) in segments" :key="s.id">
             <li class="card-enter px-5 py-3 flex items-start gap-3"
-                :class="firstUnlabeledIdx === idx ? 'bg-amber-50' : ''">
-              <div class="shrink-0 text-xs text-gray-400 font-mono tabular-nums pt-1"
+                :class="{
+                  'bg-amber-50 dark:bg-amber-900/20': firstUnlabeledIdx === idx,
+                  'card-flash': flashSegId === s.id,
+                }">
+              <div class="shrink-0 text-xs text-gray-400 dark:text-gray-500 font-mono tabular-nums pt-1"
                 x-text="formatTime(s.start_ms / 1000)"></div>
               <div class="flex-1 min-w-0">
                 <div class="flex items-center gap-2 mb-1">
                   <span x-show="s.speaker === 'me'" x-cloak
-                    class="text-[11px] font-semibold px-1.5 py-0.5 rounded bg-blue-100 text-blue-800">나</span>
+                    class="text-[11px] font-semibold px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-800/40 text-blue-800 dark:text-blue-300">나</span>
                   <span x-show="s.speaker === 'client'" x-cloak
-                    class="text-[11px] font-semibold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800">고객</span>
+                    class="text-[11px] font-semibold px-1.5 py-0.5 rounded bg-emerald-100 dark:bg-emerald-800/40 text-emerald-800">고객</span>
                   <span x-show="!s.speaker && firstUnlabeledIdx === idx" x-cloak
-                    class="text-[10px] font-medium px-1.5 py-0.5 rounded bg-amber-200 text-amber-900">
+                    class="text-[10px] font-medium px-1.5 py-0.5 rounded bg-amber-200 dark:bg-amber-700/50 text-amber-900 dark:text-amber-200">
                     ▶ 다음 라벨 대상
                   </span>
                 </div>
-                <div class="text-gray-900 leading-relaxed" x-text="s.text"></div>
-                <div class="text-[10px] text-gray-400 mt-1 font-mono">
+                <!-- Phase 8A: 텍스트 → 클릭하면 인라인 편집 -->
+                <template x-if="editingId !== s.id">
+                  <div class="text-gray-900 dark:text-gray-100 leading-relaxed cursor-text hover:bg-amber-50 dark:bg-amber-900/20 rounded px-1 -mx-1"
+                       @click="startEdit(s)"
+                       :title="'클릭하면 수정 (' + (s.edited_at ? '수정됨 ' + s.edited_at : '원문') + ')'">
+                    <span x-text="s.text"></span>
+                    <span x-show="s.edited_at" x-cloak class="ml-1 text-[10px] text-amber-600" title="사용자 수정됨 — 재처리해도 보존">📝</span>
+                  </div>
+                </template>
+                <template x-if="editingId === s.id">
+                  <input type="text"
+                         class="w-full px-2 py-1 border-2 border-amber-400 rounded text-gray-900 dark:text-gray-100 leading-relaxed focus:outline-none focus:border-amber-500"
+                         x-model="editingText"
+                         @keydown.enter.prevent="commitEdit(s)"
+                         @keydown.escape.prevent="cancelEdit()"
+                         @blur="commitEdit(s)"
+                         x-init="$nextTick(() => $el.focus())"/>
+                </template>
+                <div class="text-[10px] text-gray-400 dark:text-gray-500 mt-1 font-mono">
                   <span x-text="formatDur(s.duration_ms)"></span>
                   <span x-show="s.confidence !== null && s.confidence !== undefined">
                     · conf <span x-text="(s.confidence || 0).toFixed(2)"></span>
                   </span>
+                  <span x-show="editingId === s.id" class="text-amber-600 ml-1">Enter=저장 / ESC=취소</span>
                 </div>
               </div>
               <div class="shrink-0 flex gap-1">
                 <button @click="setSpeaker(s, 'me')"
-                  :class="s.speaker === 'me' ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-300 hover:border-blue-400 hover:bg-blue-50'"
+                  :class="s.speaker === 'me' ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-300 dark:border-gray-600 hover:border-blue-400 hover:bg-blue-50 dark:bg-blue-900/30'"
                   class="text-xs font-semibold px-2 py-1 border rounded transition">나</button>
                 <button @click="setSpeaker(s, 'client')"
-                  :class="s.speaker === 'client' ? 'bg-emerald-600 text-white border-emerald-600' : 'border-gray-300 hover:border-emerald-400 hover:bg-emerald-50'"
+                  :class="s.speaker === 'client' ? 'bg-emerald-600 text-white border-emerald-600' : 'border-gray-300 dark:border-gray-600 hover:border-emerald-400 hover:bg-emerald-50 dark:bg-emerald-900/30'"
                   class="text-xs font-semibold px-2 py-1 border rounded transition">고객</button>
                 <button @click="setSpeaker(s, null)"
                   x-show="s.speaker !== null && s.speaker !== undefined"
-                  class="text-xs text-gray-400 hover:text-gray-700 px-1">✕</button>
+                  class="text-xs text-gray-400 hover:text-gray-700 dark:text-gray-200 px-1">✕</button>
               </div>
             </li>
           </template>
@@ -269,62 +520,336 @@
     <!-- ============ FINISHED / VIEW MODE ============ -->
     <section x-show="mode === 'finished'" x-cloak class="space-y-4">
       <div class="rounded-xl p-6 border"
-           :class="viewMode ? 'bg-blue-50 border-blue-300' : 'bg-green-50 border-green-300'">
+           :class="viewMode ? 'bg-blue-50 dark:bg-blue-900/30 border-blue-300 dark:border-blue-700' : 'bg-green-50 dark:bg-green-900/30 border-green-300'">
         <h2 class="text-xl font-bold mb-2"
-            :class="viewMode ? 'text-blue-900' : 'text-green-900'">
+            :class="viewMode ? 'text-blue-900 dark:text-blue-200' : 'text-green-900'">
           <span x-show="!viewMode">✅ 녹음 완료</span>
           <span x-show="viewMode" x-cloak>📂 이전 상담 보기</span>
         </h2>
         <div class="text-sm space-y-1"
-             :class="viewMode ? 'text-blue-900' : 'text-green-900'">
+             :class="viewMode ? 'text-blue-900 dark:text-blue-200' : 'text-green-900'">
           <div x-show="finalResult.started_at">
             일시: <strong x-text="(finalResult.started_at || '').replace('T', ' ')"></strong>
           </div>
           <div>소요 시간: <strong x-text="formatTime(finalResult.duration_sec || 0)"></strong></div>
           <div>전사 카드: <strong x-text="(finalResult.segments_count || 0) + '건'"></strong></div>
-          <div x-show="(finalResult.dropped_blocks || 0) > 0" class="text-amber-700 mt-1">
+          <div x-show="(finalResult.dropped_blocks || 0) > 0" class="text-amber-700 dark:text-amber-300 mt-1">
             ⚠ 드롭된 오디오 블록: <span x-text="finalResult.dropped_blocks"></span>
+          </div>
+        </div>
+
+        <!-- v2.5.0 K: 한 줄 자동 요약 (AI 안 돌려도 즉시) -->
+        <div x-show="autoQuickSummary && (finalResult.segments_count || 0) > 0" x-cloak
+             class="mt-3 pt-3 border-t border-current/20 text-xs space-y-0.5"
+             :class="viewMode ? 'text-blue-800 dark:text-blue-300' : 'text-green-800'">
+          <div>📌 빠른 요약 (자동)</div>
+          <div>• 첫 발화: "<span x-text="autoQuickSummary && autoQuickSummary.first"></span>"</div>
+          <div>• 마지막 발화: "<span x-text="autoQuickSummary && autoQuickSummary.last"></span>"</div>
+          <div class="text-[10px] opacity-70">정밀 요약은 아래 ✨ AI 분석 으로</div>
+        </div>
+      </div>
+
+      <!-- 오디오 플레이어 (Phase 6C + v2.5.6 W1: ±5초 + 재생 속도) -->
+      <div x-show="meetingId && finalResult.mp3_path" x-cloak
+           class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
+        <div class="text-sm font-semibold mb-2 flex items-center gap-2">
+          <span>🎧</span> 녹음 재생
+          <span class="text-[11px] text-gray-500 dark:text-gray-400 dark:text-gray-500 font-normal">— 아래 카드의 시간을 클릭하면 그 위치로 이동합니다.</span>
+        </div>
+        <audio controls preload="metadata" x-ref="audioPlayer"
+               :src="audioUrl"
+               class="w-full"></audio>
+        <!-- v2.5.6 W1: 점프 + 속도 컨트롤 -->
+        <div class="mt-2 flex items-center gap-2 flex-wrap">
+          <button @click="seekRelative(-5)"
+                  class="text-xs px-2.5 py-1 border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-700 dark:text-gray-200"
+                  title="5초 뒤로">
+            ⏪ -5초
+          </button>
+          <button @click="seekRelative(5)"
+                  class="text-xs px-2.5 py-1 border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-700 dark:text-gray-200"
+                  title="5초 앞으로">
+            +5초 ⏩
+          </button>
+          <span class="text-xs text-gray-400 dark:text-gray-500 mx-1">·</span>
+          <span class="text-xs text-gray-600 dark:text-gray-300">재생 속도</span>
+          <template x-for="r in [0.75, 1.0, 1.25, 1.5, 2.0]" :key="r">
+            <button @click="setPlaybackRate(r)"
+                    :class="Math.abs(playbackRate - r) < 0.01
+                      ? 'bg-blue-600 text-white border-blue-600'
+                      : 'border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700 dark:text-gray-200'"
+                    class="text-xs px-2 py-1 border rounded font-mono">
+              <span x-text="r + 'x'"></span>
+            </button>
+          </template>
+        </div>
+        <div class="text-[11px] text-gray-400 dark:text-gray-500 mt-1 font-mono break-all"
+             x-text="finalResult.mp3_path"></div>
+      </div>
+
+      <!-- v2.5.1 I: 상담 자유 메모 (녹음 외 디자이너 메모) -->
+      <div x-show="meetingId" x-cloak
+           class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
+        <div class="flex items-center justify-between mb-2">
+          <div class="text-sm font-semibold flex items-center gap-2 dark:text-gray-100">
+            <span>📝</span> 상담 메모
+            <span class="text-[11px] text-gray-400 dark:text-gray-500 font-normal">(녹음 외 자유 메모 — 도면·치수·인상 등)</span>
+          </div>
+          <span x-show="notesSaveState === 'saving'" x-cloak class="text-[11px] text-amber-700 dark:text-amber-300">⏳ 저장 중...</span>
+          <span x-show="notesSaveState === 'saved'" x-cloak class="text-[11px] text-emerald-700 dark:text-emerald-300">✅ 저장됨</span>
+        </div>
+        <textarea x-model="meetingNotes" @input.debounce.800ms="saveMeetingNotes()"
+                  rows="4" placeholder="현장에서 본 도면·치수·고객 인상 등 자유롭게 기록..."
+                  class="w-full text-sm p-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 rounded focus:outline-none focus:border-blue-500"></textarea>
+        <div class="text-[10px] text-gray-400 dark:text-gray-500 dark:text-gray-400 dark:text-gray-500 mt-1">
+          입력 후 잠시 멈추면 자동 저장됩니다.
+        </div>
+      </div>
+
+      <!-- ====================================== -->
+      <!-- v2.6.0 K: 태그 박스 (meetingId 있을 때) -->
+      <!-- ====================================== -->
+      <div x-show="meetingId && finalResult.meeting_folder" x-cloak
+           class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
+        <div class="flex items-center justify-between mb-2">
+          <div class="text-sm font-semibold flex items-center gap-2 dark:text-gray-100">
+            <span>🏷</span> 태그
+            <span class="text-[11px] text-gray-400 dark:text-gray-500 font-normal">(#확장 #화이트톤 #예산4500 등)</span>
+          </div>
+          <span x-show="tagsSaveState === 'saving'" x-cloak class="text-[11px] text-amber-700 dark:text-amber-300">⏳ 저장 중...</span>
+          <span x-show="tagsSaveState === 'saved'" x-cloak class="text-[11px] text-emerald-700 dark:text-emerald-300">✅ 저장됨</span>
+        </div>
+        <div class="flex flex-wrap gap-1.5 mb-2 min-h-[28px]">
+          <template x-for="t in meetingTags" :key="t">
+            <span class="inline-flex items-center gap-1 text-xs bg-purple-100 dark:bg-purple-800/40 text-purple-800 dark:text-purple-200 px-2 py-0.5 rounded-full">
+              <span x-text="'#' + t"></span>
+              <button @click="removeTag(t)" class="text-purple-600 dark:text-purple-300 hover:text-purple-900 dark:hover:text-purple-100">×</button>
+            </span>
+          </template>
+          <span x-show="!meetingTags.length" class="text-xs text-gray-400 dark:text-gray-500 italic">아직 없음 — 아래에서 추가하세요</span>
+        </div>
+        <div class="flex gap-1.5">
+          <input type="text" x-model="tagInput" list="tagSuggestions"
+                 @keydown.enter.prevent="addTagFromInput()"
+                 placeholder="태그 입력 후 Enter (예: 확장, 화이트톤, 예산4500)"
+                 class="flex-1 text-sm px-2 py-1 border border-gray-300 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 rounded focus:outline-none focus:border-blue-500"/>
+          <datalist id="tagSuggestions">
+            <template x-for="t in tagSuggestions" :key="t">
+              <option :value="t"></option>
+            </template>
+          </datalist>
+          <button @click="addTagFromInput()" :disabled="!tagInput.trim()"
+                  class="text-sm bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded disabled:bg-gray-300">
+            추가
+          </button>
+        </div>
+      </div>
+
+      <!-- ====================================== -->
+      <!-- v2.6.0 L: 진행 단계 추천 박스          -->
+      <!-- ====================================== -->
+      <div x-show="meetingId && finalResult.meeting_folder && stageSuggestion && stageSuggestion.suggested_stage" x-cloak
+           class="bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-700/50 rounded-xl p-4">
+        <div class="flex items-start gap-3">
+          <span class="text-xl shrink-0">📊</span>
+          <div class="flex-1">
+            <div class="font-semibold text-blue-900 dark:text-blue-200 mb-1">
+              계약 진행 단계 변경을 추천합니다
+            </div>
+            <div class="text-sm text-blue-800 dark:text-blue-300">
+              현재: <strong x-text="stageSuggestion.current_stage"></strong>
+              → 추천: <strong x-text="stageSuggestion.suggested_stage"></strong>
+              <span class="text-xs text-blue-700 dark:text-blue-400 ml-2" x-text="'(' + (meetingInfo.meeting_type || '') + ' 종료)'"></span>
+            </div>
+            <div class="flex gap-2 mt-2">
+              <button @click="applyStageSuggestion()"
+                      class="text-sm bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded">
+                ✓ <span x-text="stageSuggestion.suggested_stage"></span> 단계로 변경
+              </button>
+              <button @click="stageSuggestion = null"
+                      class="text-sm text-blue-700 dark:text-blue-300 hover:underline px-3 py-1.5">
+                나중에
+              </button>
+            </div>
           </div>
         </div>
       </div>
 
-      <!-- 오디오 플레이어 (Phase 6C) -->
-      <div x-show="meetingId && finalResult.mp3_path" x-cloak
-           class="bg-white border border-gray-200 rounded-xl p-4">
-        <div class="text-sm font-semibold mb-2 flex items-center gap-2">
-          <span>🎧</span> 녹음 재생
+      <!-- ====================================== -->
+      <!-- v2.6.0 JJ: OJT 자동 동기화 (모든 미팅에서 사용 가능) -->
+      <!--   - 신규 고객 초도상담: 자동 노출 (강조)             -->
+      <!--   - 기존 고객 상담 다시 보기: 동일 박스 사용 가능   -->
+      <!--   - 같은 고객이 이미 등록된 경우: "이미 등록됨" + 수정 재등록 버튼 -->
+      <!-- v2.7.0: 노출 조건 완화 — finalResult.meeting_folder 없는 옛 상담도 OK -->
+      <!-- ====================================== -->
+      <div x-show="meetingId && ojtPreview" x-cloak
+           class="bg-emerald-50 dark:bg-emerald-900/30 border border-emerald-300 dark:border-emerald-700 rounded-xl p-4">
+        <div class="flex items-center justify-between mb-2 flex-wrap gap-2">
+          <div class="font-semibold flex items-center gap-2 text-emerald-900 dark:text-emerald-200">
+            <span>📊</span> OJT 엑셀 자동 동기화
+            <span x-show="ojtPreview.is_first_consult" x-cloak class="text-[11px] text-emerald-700 dark:text-emerald-400 font-normal">— 신규 고객 초도상담</span>
+            <span x-show="!ojtPreview.is_first_consult" x-cloak class="text-[11px] text-emerald-700 dark:text-emerald-400 font-normal" x-text="'— ' + (ojtPreview.meeting_type || '상담')"></span>
+          </div>
+          <div class="flex items-center gap-2">
+            <span x-show="!ojtPreview.configured" x-cloak class="text-[11px] bg-amber-100 dark:bg-amber-800/40 text-amber-800 dark:text-amber-200 px-2 py-0.5 rounded">⚠ 설정 필요</span>
+          </div>
         </div>
-        <audio controls preload="metadata"
-               :src="audioUrl"
-               class="w-full"></audio>
-        <div class="text-[11px] text-gray-400 mt-1 font-mono break-all"
-             x-text="finalResult.mp3_path"></div>
+
+        <!-- 설정 안 된 상태 -->
+        <div x-show="!ojtPreview.configured" x-cloak class="text-xs text-emerald-800 dark:text-emerald-300 mb-2">
+          OJT 파일 + 컬럼 매핑이 아직 등록되지 않았습니다. <a href="/settings" class="underline font-semibold">⚙️ 설정 → OJT 연동</a> 에서 한 번 마법사로 설정하면 다음부터 자동 사용 가능.
+        </div>
+
+        <!-- v2.6.1: 같은 고객이 이미 등록된 경우 — "이미 등록됨" 안내 -->
+        <div x-show="ojtPreview.configured && ojtPreview.client_already_registered" x-cloak
+             class="bg-white dark:bg-gray-800 border border-emerald-200 dark:border-emerald-700/50 rounded-lg p-3 mb-2">
+          <div class="flex items-start gap-2">
+            <span class="text-xl shrink-0">✓</span>
+            <div class="flex-1 min-w-0">
+              <div class="font-semibold text-emerald-900 dark:text-emerald-200 text-sm">이미 OJT 에 등록된 고객입니다</div>
+              <div class="text-[11px] text-emerald-700 dark:text-emerald-300 mt-0.5">
+                <template x-for="syn in ojtPreview.client_synced_meetings.slice(0, 3)" :key="syn.meeting_id">
+                  <div>
+                    · <span x-text="(syn.started_at || '').slice(0, 10)"></span>
+                    <span x-text="syn.meeting_type"></span>
+                    <span class="text-emerald-600 dark:text-emerald-400" x-text="'(' + (syn.ojt_synced_at || '').slice(0, 16) + ' 동기화)'"></span>
+                  </div>
+                </template>
+                <div x-show="ojtPreview.client_synced_meetings.length > 3" x-cloak class="text-[10px] opacity-70" x-text="'외 ' + (ojtPreview.client_synced_meetings.length - 3) + '건 더'"></div>
+              </div>
+              <div class="text-[11px] text-emerald-800 dark:text-emerald-300 mt-1.5 italic">
+                💡 OJT 에 새 행이 추가됩니다. 옛 행은 직접 정리하시거나 그대로 두셔도 됩니다.
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 일반 안내 (등록 안 된 경우) -->
+        <div x-show="ojtPreview.configured && !ojtPreview.client_already_registered" x-cloak class="text-xs text-emerald-800 dark:text-emerald-300 mb-2">
+          상담 분석 결과를 기반으로 OJT 엑셀 (<code x-text="ojtPreview.current_file_path && ojtPreview.current_file_path.split(/[\\/]/).pop()" class="text-[10px] font-mono"></code>) 에 새 행을 자동 추가합니다.
+        </div>
+
+        <!-- 액션 버튼 — 등록 여부에 따라 라벨 다름 -->
+        <button @click="openOjtSyncModal()"
+                :disabled="!ojtPreview.configured"
+                class="text-sm bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded disabled:bg-gray-300 disabled:cursor-not-allowed">
+          <span x-show="ojtPreview.configured && ojtPreview.client_already_registered" x-cloak>✏️ OJT 수정 재등록 (새 행 추가)</span>
+          <span x-show="ojtPreview.configured && !ojtPreview.client_already_registered" x-cloak>📊 OJT 미리보기 + 동기화</span>
+          <span x-show="!ojtPreview.configured" x-cloak>📊 OJT 미리보기 + 동기화</span>
+        </button>
+      </div>
+
+      <!-- ====================================== -->
+      <!-- v2.8.0 FF: 견적서 초안 자동 생성 -->
+      <!-- ====================================== -->
+      <div x-show="meetingId && finalResult.meeting_folder && quotePreview" x-cloak
+           class="bg-amber-50 dark:bg-amber-900/30 border border-amber-300 dark:border-amber-700 rounded-xl p-4">
+        <div class="flex items-center justify-between mb-2 flex-wrap gap-2">
+          <div class="font-semibold flex items-center gap-2 text-amber-900 dark:text-amber-200">
+            <span>💰</span> 견적서 초안 자동 작성
+            <span x-show="quotePreview && quotePreview.template_name" x-cloak class="text-[11px] text-amber-700 dark:text-amber-300 font-normal" x-text="'— ' + quotePreview.template_name"></span>
+          </div>
+          <span x-show="!quotePreview || !quotePreview.configured" x-cloak class="text-[11px] bg-amber-100 dark:bg-amber-800/40 text-amber-800 dark:text-amber-200 px-2 py-0.5 rounded">⚠ 양식 등록 필요</span>
+        </div>
+        <div x-show="!quotePreview || !quotePreview.configured" x-cloak class="text-xs text-amber-800 dark:text-amber-300 mb-2">
+          본인 견적서 양식 (xlsx) 을 한 번만 등록하면 다음부터 자동으로 셀을 채운 사본이 생성됩니다. <a href="/settings" class="underline font-semibold">⚙️ 설정 → 견적서 양식</a> 으로 이동.
+        </div>
+        <div x-show="quotePreview && quotePreview.configured" x-cloak class="text-xs text-amber-800 dark:text-amber-300 mb-2">
+          AI 분석 결과를 본인 견적서 양식에 자동으로 채워넣은 <strong>초안 사본</strong> 이 상담 폴더에 생성됩니다.
+          단가·항목은 사용자가 직접 입력하시면 됩니다 (양식 그대로 보존).
+        </div>
+        <button @click="openQuoteModal()"
+                :disabled="!quotePreview || !quotePreview.configured"
+                class="text-sm bg-amber-600 hover:bg-amber-700 text-white px-3 py-1.5 rounded disabled:bg-gray-300 disabled:cursor-not-allowed">
+          💰 견적 초안 미리보기 + 생성
+        </button>
+        <div x-show="quoteResultPath" x-cloak class="mt-2 text-xs bg-emerald-50 dark:bg-emerald-900/30 border border-emerald-300 dark:border-emerald-700 rounded p-2 text-emerald-900 dark:text-emerald-200">
+          ✅ 견적 초안 생성됨 — <strong x-text="quoteWrittenCount + '개 셀 자동 입력'"></strong>
+          <div class="mt-1 font-mono break-all opacity-80" x-text="quoteResultPath"></div>
+          <button @click="openQuoteFile()" class="mt-1 text-xs underline">📂 파일 열기</button>
+        </div>
+      </div>
+
+      <!-- ====================================== -->
+      <!-- v3.0.0: 카톡 안내 문구 자동 생성      -->
+      <!-- ====================================== -->
+      <div x-show="meetingId" x-cloak
+           class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
+        <div class="font-semibold mb-2 flex items-center gap-2 dark:text-gray-100">
+          <span>💬</span> 카톡 안내 문구
+          <span class="text-[11px] text-gray-400 dark:text-gray-500 font-normal">— 상담 후 고객에게 보낼 문구</span>
+        </div>
+        <div class="text-xs text-gray-500 dark:text-gray-400 mb-3">
+          상담 종류에 맞게 문구를 자동 생성합니다. 편집 후 카톡으로 복사·전송하세요.
+        </div>
+        <button @click="openKakaoModal()" :disabled="kakaoLoading"
+                class="text-sm bg-green-600 hover:bg-green-700 text-white px-3 py-1.5 rounded disabled:bg-gray-300 transition">
+          <span x-show="!kakaoLoading">💬 카톡 문구 생성</span>
+          <span x-show="kakaoLoading" x-cloak>⏳ 생성 중...</span>
+        </button>
+      </div>
+
+      <!-- ====================================== -->
+      <!-- v2.6.0 A: PDF 출력                     -->
+      <!-- ====================================== -->
+      <div x-show="meetingId && finalResult.meeting_folder" x-cloak
+           class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
+        <div class="font-semibold mb-2 flex items-center gap-2 dark:text-gray-100">
+          <span>📄</span> PDF 출력 (인쇄)
+          <span class="text-[11px] text-gray-400 dark:text-gray-500 font-normal">— 카톡·메일·인쇄용</span>
+        </div>
+        <div class="flex gap-2 flex-wrap">
+          <button @click="openPrintPage('summary')"
+                  class="text-sm bg-purple-600 hover:bg-purple-700 text-white px-3 py-1.5 rounded">
+            📊 AI 요약 PDF
+          </button>
+          <button @click="openPrintPage('transcript')"
+                  class="text-sm bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded">
+            📄 전체 대화 PDF
+          </button>
+          <span class="text-[11px] text-gray-500 dark:text-gray-400 self-center ml-1">
+            새 창 → 우측 상단 [📄 PDF로 저장] → "Microsoft Print to PDF" 선택
+          </span>
+        </div>
       </div>
 
       <!-- 최종 저장 경로 (상담 연결 녹음 = meetingId 있을 때) -->
       <div x-show="meetingId && finalResult.meeting_folder" x-cloak
-           class="bg-white border border-gray-200 rounded-xl p-5 space-y-2">
-        <div class="font-semibold flex items-center gap-2">
-          <span>📁</span> 상담 폴더에 저장됨
+           class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-5 space-y-2">
+        <div class="flex items-center justify-between gap-2 flex-wrap">
+          <div class="font-semibold flex items-center gap-2">
+            <span>📁</span> 상담 폴더에 저장됨
+          </div>
+          <!-- v3.3.0 Phase 5: 폴더 빠른 열기 버튼 -->
+          <div class="flex gap-1.5 flex-wrap">
+            <button @click="openFolder(finalResult.meeting_folder)"
+                    class="text-xs bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-gray-600 px-2.5 py-1 rounded-lg transition flex items-center gap-1">
+              📂 상담폴더
+            </button>
+            <button @click="openSiteImageFolder()"
+                    class="text-xs bg-sky-50 dark:bg-sky-900/30 hover:bg-sky-100 dark:hover:bg-sky-900/50 text-sky-700 dark:text-sky-300 border border-sky-200 dark:border-sky-700 px-2.5 py-1 rounded-lg transition flex items-center gap-1">
+              🖼 현장이미지
+            </button>
+          </div>
         </div>
         <div class="text-xs space-y-1">
           <div>
-            <span class="text-gray-500">폴더:</span>
+            <span class="text-gray-500 dark:text-gray-400 dark:text-gray-500">폴더:</span>
             <code class="font-mono break-all" x-text="finalResult.meeting_folder"></code>
           </div>
           <div>
-            <span class="text-gray-500">🎧 녹음:</span>
+            <span class="text-gray-500 dark:text-gray-400 dark:text-gray-500">🎧 녹음:</span>
             <code class="font-mono break-all" x-text="basename(finalResult.mp3_path)"></code>
-            <span class="text-gray-400" x-show="finalResult.mp3_size_bytes">
+            <span class="text-gray-400 dark:text-gray-500" x-show="finalResult.mp3_size_bytes">
               (<span x-text="formatBytes(finalResult.mp3_size_bytes || 0)"></span>)
             </span>
           </div>
           <div>
-            <span class="text-gray-500">📝 대화전문:</span>
+            <span class="text-gray-500 dark:text-gray-400 dark:text-gray-500">📝 대화전문:</span>
             <code class="font-mono break-all" x-text="basename(finalResult.markdown_path)"></code>
           </div>
           <div>
-            <span class="text-gray-500">ℹ 상담정보:</span>
+            <span class="text-gray-500 dark:text-gray-400 dark:text-gray-500">ℹ 상담정보:</span>
             <code class="font-mono break-all" x-text="basename(finalResult.info_json_path)"></code>
           </div>
         </div>
@@ -332,7 +857,7 @@
 
       <!-- 마감 실패 경고 -->
       <div x-show="finalResult.finalize_error" x-cloak
-           class="bg-red-50 border border-red-300 rounded-xl p-4 text-sm text-red-900">
+           class="bg-red-50 border border-red-300 dark:border-red-700 rounded-xl p-4 text-sm text-red-900 dark:text-red-200">
         <div class="font-semibold mb-1">⚠ 최종 폴더 저장 실패</div>
         <div class="text-xs font-mono whitespace-pre-wrap break-all"
              x-text="finalResult.finalize_error"></div>
@@ -344,11 +869,11 @@
 
       <!-- Phase 2 단독 테스트: WAV 경로만 표시 -->
       <div x-show="!meetingId" x-cloak
-           class="bg-white border border-gray-200 rounded-xl p-5 text-sm">
+           class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-5 text-sm">
         <div class="font-semibold mb-2">🧪 테스트 모드 결과</div>
         <div class="text-xs">
           WAV: <code class="font-mono break-all" x-text="finalResult.wav_path"></code>
-          <span class="text-gray-400 ml-2" x-show="finalResult.size_bytes">
+          <span class="text-gray-400 dark:text-gray-500 ml-2" x-show="finalResult.size_bytes">
             (<span x-text="formatBytes(finalResult.size_bytes || 0)"></span>)
           </span>
         </div>
@@ -358,15 +883,15 @@
            Phase 5C: 정확도 재처리 (Two-pass)
            ======================================== -->
       <div x-show="meetingId && finalResult.meeting_folder" x-cloak
-           class="bg-white border border-gray-200 rounded-xl p-5">
+           class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-5">
         <div class="flex items-center justify-between mb-3">
           <h3 class="font-semibold flex items-center gap-2">
             <span>🎯</span> 정확도 재처리
-            <span class="text-xs text-gray-500 font-normal">(더 큰 모델로 다시 전사)</span>
+            <span class="text-xs text-gray-500 dark:text-gray-400 dark:text-gray-500 font-normal">(더 큰 모델로 다시 전사)</span>
           </h3>
           <div class="flex items-center gap-2">
             <select x-model="retranscribeModel" :disabled="retranscribeState === 'running'"
-                    class="text-xs border border-gray-300 rounded px-2 py-1.5 disabled:bg-gray-100">
+                    class="text-xs border border-gray-300 dark:border-gray-600 rounded px-2 py-1.5 disabled:bg-gray-100 dark:bg-gray-700">
               <option value="medium">medium (정확)</option>
               <option value="small">small (빠름)</option>
               <option value="large-v3">large-v3 (최고/매우 느림)</option>
@@ -384,7 +909,7 @@
 
         <!-- 진행 -->
         <div x-show="retranscribeState === 'running'" x-cloak
-             class="bg-indigo-50 border border-indigo-200 rounded-lg p-4 text-sm">
+             class="bg-indigo-50 dark:bg-indigo-900/30 border border-indigo-200 rounded-lg p-4 text-sm">
           <div class="flex items-center gap-3">
             <span class="inline-block w-4 h-4 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin"></span>
             <div>
@@ -401,14 +926,32 @@
 
         <!-- 결과 -->
         <div x-show="retranscribeResult" x-cloak
-             class="bg-emerald-50 border border-emerald-300 rounded-lg p-4 text-sm space-y-1">
-          <div class="font-semibold text-emerald-900">✅ 재전사 완료</div>
-          <div class="text-xs space-y-0.5 text-emerald-900">
+             class="bg-emerald-50 dark:bg-emerald-900/30 border border-emerald-300 dark:border-emerald-700 rounded-lg p-4 text-sm space-y-1">
+          <div class="flex items-center justify-between">
+            <div class="font-semibold text-emerald-900 dark:text-emerald-200">✅ 재전사 완료</div>
+            <!-- Phase 8B+: 되돌리기 버튼 -->
+            <button @click="undoRetranscribe()"
+                    x-show="hasSnapshot && undoState !== 'running'"
+                    :disabled="undoState === 'running'"
+                    class="text-xs bg-white border border-emerald-400 hover:bg-amber-50 dark:bg-amber-900/20 hover:border-amber-400 text-emerald-900 hover:text-amber-900 dark:text-amber-200 font-semibold px-3 py-1 rounded transition">
+              ↩ 재전사 되돌리기
+            </button>
+            <span x-show="undoState === 'running'" x-cloak class="text-xs text-emerald-900 dark:text-emerald-200">
+              ⏳ 되돌리는 중...
+            </span>
+          </div>
+          <div class="text-xs space-y-0.5 text-emerald-900 dark:text-emerald-200">
             <div>모델: <code x-text="retranscribeResult.model"></code></div>
             <div>
               세그먼트:
               <span x-text="retranscribeResult.old_segments_count"></span>개 →
-              <strong x-text="retranscribeResult.new_segments_count"></strong>개
+              <strong x-text="retranscribeResult.final_segments_count || retranscribeResult.new_segments_count"></strong>개
+            </div>
+            <div x-show="retranscribeResult.edited_preserved_count > 0">
+              📝 사용자 편집 보존: <strong x-text="retranscribeResult.edited_preserved_count"></strong>개
+            </div>
+            <div x-show="retranscribeResult.kept_old_count > 0">
+              💾 옛 텍스트 보존 (medium 미감지): <strong x-text="retranscribeResult.kept_old_count"></strong>개
             </div>
             <div>
               화자 라벨 이관: <strong x-text="retranscribeResult.labels_transferred"></strong>개
@@ -420,44 +963,94 @@
           </div>
         </div>
 
+        <!-- 되돌리기 결과 알림 -->
+        <div x-show="undoResult" x-cloak
+             class="bg-amber-50 dark:bg-amber-900/20 border border-amber-300 dark:border-amber-700 rounded-lg p-3 text-sm">
+          <div class="font-semibold text-amber-900 dark:text-amber-200">↩ 재전사 되돌리기 완료</div>
+          <div class="text-xs text-amber-900 dark:text-amber-200 mt-0.5">
+            <span x-text="undoResult && undoResult.restored_count"></span>개 카드를 재전사 직전 상태로 복원했습니다.
+          </div>
+        </div>
+
         <!-- 에러 -->
         <div x-show="retranscribeError" x-cloak
-             class="bg-red-50 border border-red-300 rounded-lg p-4 text-sm">
-          <div class="font-semibold text-red-900 mb-1">⚠ 재전사 실패</div>
-          <div class="text-xs font-mono whitespace-pre-wrap break-all text-red-900"
+             class="bg-red-50 border border-red-300 dark:border-red-700 rounded-lg p-4 text-sm">
+          <div class="font-semibold text-red-900 dark:text-red-200 mb-1">⚠ 재전사 실패</div>
+          <div class="text-xs font-mono whitespace-pre-wrap break-all text-red-900 dark:text-red-200"
                x-text="retranscribeError"></div>
         </div>
 
         <!-- 안내 (실행 전) -->
         <div x-show="!retranscribeResult && retranscribeState !== 'running' && !retranscribeError" x-cloak
-             class="text-sm text-gray-600 leading-relaxed">
-          실시간으로는 <code class="bg-gray-100 px-1 rounded">small</code> 모델로 빠르게 전사하고,
-          종료 후 더 큰 모델(<code class="bg-gray-100 px-1 rounded">medium</code>)로 정확도를 끌어올리는 단계입니다.
+             class="text-sm text-gray-600 dark:text-gray-300 leading-relaxed">
+          실시간으로는 <code class="bg-gray-100 dark:bg-gray-700 px-1 rounded">small</code> 모델로 빠르게 전사하고,
+          종료 후 더 큰 모델(<code class="bg-gray-100 dark:bg-gray-700 px-1 rounded">medium</code>)로 정확도를 끌어올리는 단계입니다.
           <br>화자 라벨(나/고객)은 시간 겹침으로 자동 보존되며,
-          완료 후 카드와 <code class="bg-gray-100 px-1 rounded">대화전문.md</code> 가 새 결과로 교체됩니다.
+          완료 후 카드와 <code class="bg-gray-100 dark:bg-gray-700 px-1 rounded">대화전문.md</code> 가 새 결과로 교체됩니다.
         </div>
       </div>
 
+
+      <!-- v3.2.0 Phase 4: 준비 노트 (완료 화면에서도 표시) -->
+      <template x-if="meetingId && preNotesText">
+        <div class="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl p-4">
+          <div class="flex items-center justify-between mb-2">
+            <div class="text-sm font-semibold text-amber-800 dark:text-amber-300">📝 상담 전 준비 메모</div>
+            <div class="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1">
+              <span x-show="preNotesSaving" x-cloak>저장 중...</span>
+              <span x-show="preNotesSaved" x-cloak>✓ 저장됨</span>
+            </div>
+          </div>
+          <textarea x-model="preNotesText"
+                    @input="schedulePreNotesSave()"
+                    rows="2"
+                    class="w-full text-sm border border-amber-200 dark:border-amber-700 rounded-lg px-3 py-2 resize-none bg-white dark:bg-gray-800 dark:text-gray-100 focus:outline-none focus:border-amber-400"></textarea>
+        </div>
+      </template>
 
       <!-- ========================================
            Phase 4: AI 분석
            ======================================== -->
       <div x-show="meetingId && finalResult.meeting_folder" x-cloak
-           class="bg-white border border-gray-200 rounded-xl p-5">
-        <div class="flex items-center justify-between mb-3">
+           class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-5">
+        <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
           <h3 class="font-semibold flex items-center gap-2">
             <span>🤖</span> AI 상담 분석
-            <span class="text-xs text-gray-500 font-normal"
+            <span class="text-xs text-gray-500 dark:text-gray-400 dark:text-gray-500 font-normal"
                   x-text="'(' + (meetingInfo.meeting_type || '') + ')'"></span>
           </h3>
-          <button @click="runAnalysis()"
-                  :disabled="analysisState === 'running'"
-                  :class="analysisState === 'running' ? 'bg-gray-300 cursor-not-allowed' : (analysis ? 'bg-gray-600 hover:bg-gray-700' : 'bg-purple-600 hover:bg-purple-700')"
-                  class="text-sm text-white font-semibold px-4 py-2 rounded-lg transition">
-            <span x-show="analysisState !== 'running' && !analysis">✨ 분석 시작</span>
-            <span x-show="analysisState !== 'running' && analysis">🔁 다시 분석</span>
-            <span x-show="analysisState === 'running'" x-cloak>⏳ 분석 중...</span>
-          </button>
+          <div class="flex items-center gap-2 flex-wrap">
+            <!-- ⑦ 발화 통계 -->
+            <button @click="openSpeechStats()"
+                    class="text-xs px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-700 dark:text-gray-200">
+              📊 발화 통계
+            </button>
+            <!-- ⑬ 이메일 초안 (분석 결과 있을 때만) -->
+            <button x-show="analysis" x-cloak @click="openEmailDraftLive()"
+                    class="text-xs px-3 py-1.5 border border-indigo-300 dark:border-indigo-600 text-indigo-700 dark:text-indigo-300 rounded hover:bg-indigo-50 dark:hover:bg-indigo-900/30">
+              ✉ 이메일 초안
+            </button>
+            <!-- ⑭ QR -->
+            <button x-show="analysis" x-cloak @click="openQrLive()"
+                    class="text-xs px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-700 dark:text-gray-200">
+              📱 QR
+            </button>
+            <!-- ⑥ 재분석 -->
+            <button x-show="analysis" x-cloak @click="runReanalyze()"
+                    :disabled="analysisState === 'running'"
+                    class="text-xs px-3 py-1.5 border border-orange-300 dark:border-orange-600 text-orange-700 dark:text-orange-300 rounded hover:bg-orange-50 dark:hover:bg-orange-900/30 disabled:opacity-50">
+              🔄 재분석
+            </button>
+            <!-- 분석 시작 -->
+            <button @click="runAnalysis()"
+                    :disabled="analysisState === 'running'"
+                    :class="analysisState === 'running' ? 'bg-gray-300 cursor-not-allowed' : (analysis ? 'bg-gray-600 hover:bg-gray-700' : 'bg-purple-600 hover:bg-purple-700')"
+                    class="text-sm text-white font-semibold px-4 py-2 rounded-lg transition">
+              <span x-show="analysisState !== 'running' && !analysis">✨ 분석 시작</span>
+              <span x-show="analysisState !== 'running' && analysis">🔁 다시 분석</span>
+              <span x-show="analysisState === 'running'" x-cloak>⏳ 분석 중...</span>
+            </button>
+          </div>
         </div>
 
         <!-- 로딩/에러 -->
@@ -466,8 +1059,8 @@
           <div class="flex items-center gap-3">
             <span class="inline-block w-4 h-4 border-2 border-purple-500 border-t-transparent rounded-full animate-spin"></span>
             <div>
-              <div class="font-semibold text-purple-900">qwen2.5:3b 로 분석 중...</div>
-              <div class="text-xs text-purple-700 mt-0.5">
+              <div class="font-semibold text-purple-900 dark:text-purple-200">qwen2.5:3b 로 분석 중...</div>
+              <div class="text-xs text-purple-700 dark:text-purple-300 mt-0.5">
                 CPU 분석이라 <strong x-text="'~' + analysisElapsed + '초'"></strong> 경과.
                 전사 길이에 따라 최대 몇 분까지 걸릴 수 있습니다.
               </div>
@@ -476,9 +1069,9 @@
         </div>
 
         <div x-show="analysisError" x-cloak
-             class="bg-red-50 border border-red-300 rounded-lg p-4 text-sm">
-          <div class="font-semibold text-red-900 mb-1">⚠ 분석 실패</div>
-          <div class="text-xs font-mono whitespace-pre-wrap break-all text-red-900"
+             class="bg-red-50 border border-red-300 dark:border-red-700 rounded-lg p-4 text-sm">
+          <div class="font-semibold text-red-900 dark:text-red-200 mb-1">⚠ 분석 실패</div>
+          <div class="text-xs font-mono whitespace-pre-wrap break-all text-red-900 dark:text-red-200"
                x-text="analysisError"></div>
         </div>
 
@@ -487,35 +1080,95 @@
           <div>
             <!-- JSON 파싱 실패 경고 -->
             <div x-show="analysis._parse_failed" x-cloak
-                 class="bg-amber-50 border border-amber-300 rounded-lg p-3 mb-3 text-xs text-amber-900">
+                 class="bg-amber-50 dark:bg-amber-900/20 border border-amber-300 dark:border-amber-700 rounded-lg p-3 mb-3 text-xs text-amber-900 dark:text-amber-200">
               ⚠ 모델 응답이 정해진 JSON 형식이 아니었습니다. 아래 원문을 확인해 주세요.
               (같은 프롬프트로 "다시 분석" 을 시도하면 성공할 수도 있습니다.)
             </div>
 
+            <!-- Phase 8B+: AI 분석 편집 안내 + 저장 상태 -->
+            <div class="mb-2 flex items-center justify-between text-[11px] flex-wrap gap-2">
+              <div class="text-gray-500 dark:text-gray-400 dark:text-gray-500">💡 카드 내용을 클릭하면 직접 수정할 수 있습니다.</div>
+              <div class="flex items-center gap-2">
+                <!-- v2.5.0 C: 전체 분석 클립보드 복사 -->
+                <button @click="copyAllAnalysis()"
+                        class="text-[11px] bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 hover:bg-emerald-50 dark:bg-emerald-900/30 hover:border-emerald-400 dark:hover:bg-emerald-900/30 dark:text-gray-200 px-2 py-0.5 rounded transition"
+                        title="전체 분석 결과를 클립보드에 복사 (카톡/메일에 붙여넣기)">
+                  📋 전체 복사
+                </button>
+                <span x-show="analysisEditState === 'saving'" x-cloak class="text-amber-700 dark:text-amber-300">⏳ 저장 중...</span>
+                <span x-show="analysisEditState === 'saved'" x-cloak class="text-emerald-700 dark:text-emerald-300">✅ 저장됨</span>
+                <span x-show="analysisEditState === 'error'" x-cloak class="text-red-700"
+                      :title="analysisEditError" x-text="'⚠ 저장 실패'"></span>
+              </div>
+            </div>
+
             <!-- 요약 -->
-            <template x-if="analysis.summary">
-              <div class="mb-4 bg-gray-50 border border-gray-200 rounded-lg p-4">
-                <div class="text-xs font-medium text-gray-500 mb-1">📝 요약</div>
-                <div class="text-sm leading-relaxed whitespace-pre-wrap" x-text="analysis.summary"></div>
+            <template x-if="analysis.summary !== undefined">
+              <div class="mb-4 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+                <div class="text-xs font-medium text-gray-500 dark:text-gray-400 dark:text-gray-500 mb-1">📝 요약</div>
+                <template x-if="analysisEditingPath !== 'summary'">
+                  <div class="text-sm leading-relaxed whitespace-pre-wrap cursor-text hover:bg-amber-50 dark:bg-amber-900/20 rounded px-1 -mx-1"
+                       @click="startAnalysisEdit('summary', analysis.summary || '')"
+                       x-text="analysis.summary || '(빈칸 — 클릭해서 입력)'"
+                       :class="!analysis.summary ? 'text-gray-300 italic' : ''"></div>
+                </template>
+                <template x-if="analysisEditingPath === 'summary'">
+                  <textarea class="w-full text-sm p-2 border-2 border-amber-400 rounded leading-relaxed focus:outline-none focus:border-amber-500"
+                            rows="4"
+                            x-model="analysisEditingValue"
+                            @keydown.escape.prevent="cancelAnalysisEdit()"
+                            @blur="commitAnalysisEdit()"
+                            x-init="$nextTick(() => $el.focus())"></textarea>
+                </template>
+                <div x-show="analysisEditingPath === 'summary'" class="text-[10px] text-amber-700 dark:text-amber-300 mt-1">
+                  ESC=취소 / 다른 곳 클릭=저장
+                </div>
               </div>
             </template>
 
             <!-- 스키마 섹션들 (객체/리스트 자동 렌더) -->
             <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
               <template x-for="section in renderableSections" :key="section.key">
-                <div class="bg-white border border-gray-200 rounded-lg p-3 text-sm">
-                  <div class="text-xs font-medium text-gray-500 mb-1.5" x-text="section.title"></div>
+                <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-3 text-sm dark:text-gray-100">
+                  <div class="flex items-center justify-between mb-1.5">
+                    <div class="text-xs font-medium text-gray-500 dark:text-gray-400 dark:text-gray-500" x-text="section.title"></div>
+                    <div class="flex items-center gap-1">
+                      <button @click="copyAnalysisSection(section)"
+                              class="text-[10px] text-gray-400 dark:text-gray-500 hover:text-emerald-600 dark:hover:text-emerald-400"
+                              title="이 섹션 클립보드 복사">📋</button>
+                      <button x-show="section.kind === 'list'"
+                              @click="addAnalysisListItem(section.key)"
+                              class="text-[10px] text-blue-600 hover:text-blue-800 dark:text-blue-400"
+                              title="리스트에 새 항목 추가">+ 추가</button>
+                    </div>
+                  </div>
                   <!-- 리스트 -->
                   <template x-if="section.kind === 'list'">
                     <div>
                       <template x-if="section.items.length === 0">
-                        <div class="text-xs text-gray-400 italic">해당 없음</div>
+                        <div class="text-xs text-gray-400 dark:text-gray-500 italic">해당 없음 (+ 추가 클릭)</div>
                       </template>
                       <ul class="space-y-1">
                         <template x-for="(item, i) in section.items" :key="i">
-                          <li class="flex items-start gap-1.5">
-                            <span class="text-gray-400 mt-0.5">·</span>
-                            <span class="leading-snug" x-text="item"></span>
+                          <li class="flex items-start gap-1.5 group">
+                            <span class="text-gray-400 dark:text-gray-500 mt-0.5">·</span>
+                            <template x-if="analysisEditingPath !== section.key + '[' + i + ']'">
+                              <span class="leading-snug flex-1 cursor-text hover:bg-amber-50 dark:bg-amber-900/20 rounded px-1 -mx-1"
+                                    @click="startAnalysisEdit(section.key + '[' + i + ']', item)"
+                                    x-text="item"></span>
+                            </template>
+                            <template x-if="analysisEditingPath === section.key + '[' + i + ']'">
+                              <input type="text"
+                                     class="flex-1 px-1 py-0.5 border-2 border-amber-400 rounded text-sm focus:outline-none focus:border-amber-500"
+                                     x-model="analysisEditingValue"
+                                     @keydown.enter.prevent="commitAnalysisEdit()"
+                                     @keydown.escape.prevent="cancelAnalysisEdit()"
+                                     @blur="commitAnalysisEdit()"
+                                     x-init="$nextTick(() => $el.focus())"/>
+                            </template>
+                            <button @click="removeAnalysisListItem(section.key, i)"
+                                    class="opacity-0 group-hover:opacity-100 text-[10px] text-red-500 hover:text-red-700 px-1 transition-opacity"
+                                    title="이 항목 삭제">✕</button>
                           </li>
                         </template>
                       </ul>
@@ -526,18 +1179,44 @@
                     <dl class="space-y-1">
                       <template x-for="entry in section.entries" :key="entry.key">
                         <div class="flex gap-2">
-                          <dt class="text-gray-500 min-w-[5rem] shrink-0" x-text="entry.key"></dt>
-                          <dd class="flex-1" x-text="entry.value || '—'"
-                              :class="!entry.value ? 'text-gray-300' : ''"></dd>
+                          <dt class="text-gray-500 dark:text-gray-400 dark:text-gray-500 min-w-[5rem] shrink-0" x-text="entry.label || entry.key"></dt>
+                          <template x-if="analysisEditingPath !== section.key + '.' + entry.key">
+                            <dd class="flex-1 cursor-text hover:bg-amber-50 dark:bg-amber-900/20 rounded px-1 -mx-1"
+                                @click="startAnalysisEdit(section.key + '.' + entry.key, entry.value || '')"
+                                x-text="entry.value || '— 클릭해서 입력 —'"
+                                :class="!entry.value ? 'text-gray-300 italic' : ''"></dd>
+                          </template>
+                          <template x-if="analysisEditingPath === section.key + '.' + entry.key">
+                            <dd class="flex-1">
+                              <input type="text"
+                                     class="w-full px-1 py-0.5 border-2 border-amber-400 rounded text-sm focus:outline-none focus:border-amber-500"
+                                     x-model="analysisEditingValue"
+                                     @keydown.enter.prevent="commitAnalysisEdit()"
+                                     @keydown.escape.prevent="cancelAnalysisEdit()"
+                                     @blur="commitAnalysisEdit()"
+                                     x-init="$nextTick(() => $el.focus())"/>
+                            </dd>
+                          </template>
                         </div>
                       </template>
                     </dl>
                   </template>
                   <!-- 문자열 -->
                   <template x-if="section.kind === 'text'">
-                    <div class="whitespace-pre-wrap leading-relaxed"
-                         :class="!section.value ? 'text-gray-300 italic' : ''"
-                         x-text="section.value || '해당 없음'"></div>
+                    <template x-if="analysisEditingPath !== section.key">
+                      <div class="whitespace-pre-wrap leading-relaxed cursor-text hover:bg-amber-50 dark:bg-amber-900/20 rounded px-1 -mx-1"
+                           @click="startAnalysisEdit(section.key, section.value || '')"
+                           :class="!section.value ? 'text-gray-300 italic' : ''"
+                           x-text="section.value || '— 클릭해서 입력 —'"></div>
+                    </template>
+                    <template x-if="analysisEditingPath === section.key">
+                      <textarea class="w-full px-1 py-0.5 border-2 border-amber-400 rounded text-sm leading-relaxed focus:outline-none focus:border-amber-500"
+                                rows="3"
+                                x-model="analysisEditingValue"
+                                @keydown.escape.prevent="cancelAnalysisEdit()"
+                                @blur="commitAnalysisEdit()"
+                                x-init="$nextTick(() => $el.focus())"></textarea>
+                    </template>
                   </template>
                 </div>
               </template>
@@ -545,15 +1224,15 @@
 
             <!-- 원문 (파싱 실패 시에만) -->
             <template x-if="analysis._parse_failed && analysis.raw_response">
-              <div class="mt-3 bg-gray-50 border border-gray-200 rounded-lg p-3">
-                <div class="text-xs font-medium text-gray-500 mb-1">🧾 모델 원문 응답</div>
+              <div class="mt-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-3">
+                <div class="text-xs font-medium text-gray-500 dark:text-gray-400 dark:text-gray-500 mb-1">🧾 모델 원문 응답</div>
                 <pre class="text-[11px] whitespace-pre-wrap break-all font-mono"
                      x-text="analysis.raw_response"></pre>
               </div>
             </template>
 
             <!-- 저장 위치 -->
-            <div class="mt-3 text-xs text-gray-500 space-y-0.5">
+            <div class="mt-3 text-xs text-gray-500 dark:text-gray-400 dark:text-gray-500 space-y-0.5">
               <div x-show="analysisMeta.md_path">
                 📝 요약 파일: <code class="font-mono break-all" x-text="basename(analysisMeta.md_path)"></code>
               </div>
@@ -572,47 +1251,130 @@
 
         <!-- 분석 실행 안 한 상태 -->
         <div x-show="!analysis && analysisState !== 'running' && !analysisError" x-cloak
-             class="text-sm text-gray-500 leading-relaxed">
-          녹음 내용을 <code class="bg-gray-100 px-1 rounded">qwen2.5:3b</code> 로컬 모델이 읽고,
+             class="text-sm text-gray-500 dark:text-gray-400 dark:text-gray-500 leading-relaxed">
+          녹음 내용을 <code class="bg-gray-100 dark:bg-gray-700 px-1 rounded">qwen2.5:3b</code> 로컬 모델이 읽고,
           상담 종류에 맞는 요약 / 요청사항 / 액션아이템을 뽑아냅니다.
           <strong>외부 전송 없이 이 컴퓨터에서만</strong> 처리됩니다.
         </div>
       </div>
 
-      <div class="bg-white rounded-xl border border-gray-200">
-        <div class="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
-          <div class="font-semibold">📄 전체 전사</div>
-          <div x-show="meetingId" class="text-xs text-gray-500">
-            <kbd class="px-1 bg-gray-100 border border-gray-300 rounded">1</kbd>=나
-            <kbd class="px-1 bg-gray-100 border border-gray-300 rounded">2</kbd>=고객
-            <kbd class="px-1 bg-gray-100 border border-gray-300 rounded">0</kbd>=지우기
+      <!-- v3.0.0 Phase 3: 팔로업 메시지 -->
+      <template x-if="followupTemplates.length > 0">
+        <div class="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700">
+          <div class="px-5 py-3 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between">
+            <div class="font-semibold dark:text-gray-100">📬 팔로업 메시지</div>
+            <div class="text-xs text-gray-500 dark:text-gray-400">클릭하면 변수 치환 후 클립보드 복사</div>
+          </div>
+          <div class="px-5 py-3 space-y-2">
+            <template x-for="tpl in followupTemplates" :key="tpl.id">
+              <div class="flex items-center justify-between gap-3 py-1.5 border-b border-gray-50 dark:border-gray-700 last:border-b-0">
+                <div>
+                  <div class="text-sm font-medium text-gray-700 dark:text-gray-200" x-text="tpl.title"></div>
+                  <div class="text-xs text-gray-400 dark:text-gray-500 truncate max-w-xs mt-0.5"
+                       x-text="(tpl.content || '').substring(0, 60) + (tpl.content && tpl.content.length > 60 ? '…' : '')"></div>
+                </div>
+                <button @click="copyFollowup(tpl.id)"
+                        :disabled="followupCopying === tpl.id"
+                        class="shrink-0 text-xs px-3 py-1.5 rounded-lg border font-medium transition-all"
+                        :class="followupCopied[tpl.id]
+                          ? 'bg-emerald-50 border-emerald-300 text-emerald-700 dark:bg-emerald-900/30 dark:border-emerald-600 dark:text-emerald-300'
+                          : followupCopying === tpl.id
+                            ? 'bg-gray-100 border-gray-300 text-gray-400 cursor-not-allowed dark:bg-gray-700 dark:border-gray-600 dark:text-gray-500'
+                            : 'border-gray-300 dark:border-gray-600 hover:bg-purple-50 hover:border-purple-300 hover:text-purple-700 dark:hover:bg-purple-900/30 dark:hover:text-purple-300 dark:text-gray-200'">
+                  <span x-show="followupCopied[tpl.id]">✅ 복사됨</span>
+                  <span x-show="followupCopying === tpl.id && !followupCopied[tpl.id]" x-cloak>⏳ 복사 중…</span>
+                  <span x-show="followupCopying !== tpl.id && !followupCopied[tpl.id]">📋 복사</span>
+                </button>
+              </div>
+            </template>
           </div>
         </div>
-        <ul class="divide-y divide-gray-100 max-h-96 overflow-y-auto">
+      </template>
+
+      <div class="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700">
+        <div class="px-5 py-3 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between flex-wrap gap-2">
+          <div class="font-semibold dark:text-gray-100">📄 전체 전사</div>
+          <div class="flex items-center gap-2">
+            <!-- v2.5.6 P1: 전체 대화 클립보드 복사 -->
+            <button @click="copyFullTranscript()"
+                    class="text-xs px-2 py-1 border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-50 dark:bg-gray-800 dark:hover:bg-gray-700 dark:text-gray-200"
+                    title="타임스탬프 + 화자 + 텍스트 전체를 클립보드로 복사">
+              📋 전체 복사
+            </button>
+            <button @click="cardSearchOpen ? closeCardSearch() : openCardSearch()"
+                    class="text-xs px-2 py-1 border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-50 dark:bg-gray-800 dark:hover:bg-gray-700 dark:text-gray-200"
+                    title="단축키: /">
+              🔍 <span x-show="!cardSearchOpen">검색</span><span x-show="cardSearchOpen" x-cloak>닫기</span>
+            </button>
+            <div x-show="meetingId" class="text-xs text-gray-500 dark:text-gray-400 dark:text-gray-500">
+              <kbd class="px-1 bg-gray-100 dark:bg-gray-700 dark:text-gray-100 border border-gray-300 dark:border-gray-600 rounded">1</kbd>=나
+              <kbd class="px-1 bg-gray-100 dark:bg-gray-700 dark:text-gray-100 border border-gray-300 dark:border-gray-600 rounded">2</kbd>=고객
+              <kbd class="px-1 bg-gray-100 dark:bg-gray-700 dark:text-gray-100 border border-gray-300 dark:border-gray-600 rounded">0</kbd>=지우기
+              <kbd class="px-1 bg-gray-100 dark:bg-gray-700 dark:text-gray-100 border border-gray-300 dark:border-gray-600 rounded">F1</kbd>=도움말
+            </div>
+          </div>
+        </div>
+        <!-- v2.5.0 B: 카드 검색 -->
+        <div x-show="cardSearchOpen" x-cloak class="px-5 py-2 border-b border-gray-100 dark:border-gray-700 flex items-center gap-2">
+          <input type="text" data-card-search x-model="cardSearchQuery"
+                 placeholder="카드 텍스트에서 검색 (Esc 로 닫기)"
+                 class="flex-1 text-sm px-2 py-1 border border-gray-300 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 rounded focus:outline-none focus:border-blue-500"/>
+          <span class="text-xs text-gray-500 dark:text-gray-400 dark:text-gray-500" x-show="cardSearchQuery">
+            매치 <strong x-text="filteredSegmentsCount"></strong>건
+          </span>
+        </div>
+        <ul class="divide-y divide-gray-100 dark:divide-gray-700 max-h-96 overflow-y-auto">
           <template x-for="(s, idx) in (finalResult.segments || [])" :key="s.id">
-            <li class="px-5 py-2 flex items-start gap-3 text-sm"
-                :class="meetingId && finishedFirstUnlabeledIdx === idx ? 'bg-amber-50' : ''">
-              <span class="shrink-0 text-xs text-gray-400 font-mono tabular-nums pt-0.5"
-                x-text="formatTime(s.start_ms / 1000)"></span>
+            <li class="px-5 py-2 flex items-start gap-3 text-sm dark:text-gray-100"
+                :class="{
+                  'bg-amber-50 dark:bg-amber-900/20': meetingId && finishedFirstUnlabeledIdx === idx && !cardSearchQuery,
+                  'bg-yellow-100 dark:bg-yellow-700/30': cardSearchQuery && matchesQuery(s.text),
+                  'opacity-30': cardSearchQuery && !matchesQuery(s.text),
+                }">
+              <!-- Phase 8D+ (v2.4.1): 시간 클릭 → 오디오 그 위치로 이동 -->
+              <button @click="seekAudioTo(s.start_ms)"
+                :disabled="!finalResult.mp3_path"
+                :title="finalResult.mp3_path ? '클릭해서 이 위치 재생' : '오디오 파일 없음'"
+                class="shrink-0 text-xs font-mono tabular-nums pt-0.5 rounded px-1 -mx-1 transition"
+                :class="finalResult.mp3_path
+                  ? 'text-blue-600 hover:bg-blue-50 dark:bg-blue-900/30 hover:text-blue-800 cursor-pointer'
+                  : 'text-gray-400 dark:text-gray-500 cursor-default'"
+                x-text="formatTime(s.start_ms / 1000)"></button>
               <div class="flex-1 min-w-0">
-                <div class="flex items-center gap-2">
+                <div class="flex items-center gap-2 flex-wrap">
                   <span x-show="s.speaker === 'me'" x-cloak
-                    class="text-[11px] font-semibold px-1.5 py-0.5 rounded bg-blue-100 text-blue-800">나</span>
+                    class="text-[11px] font-semibold px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-800/40 text-blue-800 dark:text-blue-300">나</span>
                   <span x-show="s.speaker === 'client'" x-cloak
-                    class="text-[11px] font-semibold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800">고객</span>
-                  <span x-text="s.text"></span>
+                    class="text-[11px] font-semibold px-1.5 py-0.5 rounded bg-emerald-100 dark:bg-emerald-800/40 text-emerald-800">고객</span>
+                  <!-- Phase 8A: 텍스트 → 클릭하면 인라인 편집 (meetingId 있을 때만) -->
+                  <template x-if="!meetingId || editingId !== s.id">
+                    <span :class="meetingId ? 'cursor-text hover:bg-amber-50 dark:bg-amber-900/20 rounded px-1 -mx-1' : ''"
+                          @click="meetingId && startEdit(s)">
+                      <span x-text="s.text"></span>
+                      <span x-show="s.edited_at" x-cloak class="ml-1 text-[10px] text-amber-600" title="사용자 수정됨 — 재처리해도 보존">📝</span>
+                    </span>
+                  </template>
+                  <template x-if="meetingId && editingId === s.id">
+                    <input type="text"
+                           class="flex-1 min-w-[180px] px-2 py-0.5 border-2 border-amber-400 rounded text-sm focus:outline-none focus:border-amber-500"
+                           x-model="editingText"
+                           @keydown.enter.prevent="commitEdit(s)"
+                           @keydown.escape.prevent="cancelEdit()"
+                           @blur="commitEdit(s)"
+                           x-init="$nextTick(() => $el.focus())"/>
+                  </template>
                 </div>
               </div>
               <div x-show="meetingId" class="shrink-0 flex gap-1">
                 <button @click="setSpeaker(s, 'me')"
-                  :class="s.speaker === 'me' ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-300 hover:border-blue-400 hover:bg-blue-50'"
+                  :class="s.speaker === 'me' ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-300 dark:border-gray-600 hover:border-blue-400 hover:bg-blue-50 dark:bg-blue-900/30'"
                   class="text-[11px] font-semibold px-2 py-0.5 border rounded transition">나</button>
                 <button @click="setSpeaker(s, 'client')"
-                  :class="s.speaker === 'client' ? 'bg-emerald-600 text-white border-emerald-600' : 'border-gray-300 hover:border-emerald-400 hover:bg-emerald-50'"
+                  :class="s.speaker === 'client' ? 'bg-emerald-600 text-white border-emerald-600' : 'border-gray-300 dark:border-gray-600 hover:border-emerald-400 hover:bg-emerald-50 dark:bg-emerald-900/30'"
                   class="text-[11px] font-semibold px-2 py-0.5 border rounded transition">고객</button>
                 <button @click="setSpeaker(s, null)"
                   x-show="s.speaker !== null && s.speaker !== undefined"
-                  class="text-[11px] text-gray-400 hover:text-gray-700 px-1">✕</button>
+                  class="text-[11px] text-gray-400 hover:text-gray-700 dark:text-gray-200 px-1">✕</button>
               </div>
             </li>
           </template>
@@ -620,7 +1382,7 @@
       </div>
 
       <div class="grid grid-cols-2 gap-3">
-        <a href="/live" class="py-3 text-center bg-white border border-gray-300 hover:border-blue-400 rounded-lg font-medium">
+        <a href="/live" class="py-3 text-center bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 hover:border-blue-400 rounded-lg font-medium">
           새 녹음
         </a>
         <a href="/" class="py-3 text-center bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium">
@@ -630,6 +1392,435 @@
     </section>
 
   </main>
+
+  <!-- v2.5.0 D: 단축키 도움말 모달 -->
+  <div x-show="showShortcutHelp" x-cloak
+       @click.self="showShortcutHelp = false"
+       class="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+    <div class="bg-white dark:bg-gray-800 rounded-xl shadow-xl max-w-md w-full p-5 dark:text-gray-100">
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="font-bold text-lg flex items-center gap-2">⌨️ 단축키</h3>
+        <button @click="showShortcutHelp = false" class="text-gray-400 hover:text-gray-700 dark:text-gray-200 dark:hover:text-gray-200 text-xl leading-none">×</button>
+      </div>
+      <ul class="space-y-2 text-sm">
+        <li class="flex items-center gap-3"><kbd class="px-2 py-0.5 bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded font-mono min-w-[2rem] text-center">1</kbd> 카드 라벨 = 나</li>
+        <li class="flex items-center gap-3"><kbd class="px-2 py-0.5 bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded font-mono min-w-[2rem] text-center">2</kbd> 카드 라벨 = 고객</li>
+        <li class="flex items-center gap-3"><kbd class="px-2 py-0.5 bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded font-mono min-w-[2rem] text-center">0</kbd> 카드 라벨 지우기</li>
+        <li class="flex items-center gap-3"><kbd class="px-2 py-0.5 bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded font-mono min-w-[2rem] text-center">/ 또는 F3</kbd> 카드 검색 열기</li>
+        <li class="flex items-center gap-3"><kbd class="px-2 py-0.5 bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded font-mono min-w-[2rem] text-center">F1</kbd> 이 도움말 토글</li>
+        <li class="flex items-center gap-3"><kbd class="px-2 py-0.5 bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded font-mono min-w-[2rem] text-center">Esc</kbd> 검색·도움말·편집 닫기</li>
+      </ul>
+      <div class="text-[11px] text-gray-500 dark:text-gray-400 dark:text-gray-500 mt-3">
+        텍스트 입력 중에는 1·2·0 단축키가 동작 안 합니다 (정상).
+      </div>
+    </div>
+  </div>
+
+  <!-- v2.5.0 C: 클립보드 복사 토스트 -->
+  <div x-show="copyToast" x-cloak
+       class="fixed bottom-6 right-6 bg-emerald-600 text-white text-sm px-4 py-2 rounded-lg shadow-lg z-50"
+       x-text="copyToast"></div>
+
+  <!-- v3.0.0: 카톡 안내 문구 모달 -->
+  <div x-show="showKakaoModal" x-cloak
+       @click.self="showKakaoModal = false"
+       @keydown.escape.window="showKakaoModal = false"
+       class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+    <div class="bg-white dark:bg-gray-800 dark:text-gray-100 rounded-xl shadow-xl max-w-lg w-full p-5">
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="font-bold text-lg flex items-center gap-2">
+          <span>💬</span> 카톡 안내 문구
+        </h3>
+        <button @click="showKakaoModal = false" class="text-gray-400 hover:text-gray-700 dark:text-gray-200 text-xl leading-none">×</button>
+      </div>
+      <!-- 클라이언트 전화번호 표시 -->
+      <div x-show="kakaoClientPhone" x-cloak class="mb-2 flex items-center gap-2 text-sm">
+        <span class="text-gray-500 dark:text-gray-400">수신자:</span>
+        <a :href="'tel:' + kakaoClientPhone" class="text-blue-600 dark:text-blue-400 font-mono hover:underline" x-text="kakaoClientPhone"></a>
+        <span class="text-xs text-gray-400">(등록된 번호)</span>
+      </div>
+      <div x-show="!kakaoClientPhone" x-cloak class="mb-2 text-xs text-gray-400 dark:text-gray-500">
+        전화번호 미등록 — 고객 360뷰에서 추가 가능
+      </div>
+      <!-- 편집 가능한 textarea -->
+      <textarea x-model="kakaoMessage" rows="12"
+                class="w-full text-sm px-3 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 rounded resize-none focus:outline-none focus:border-blue-500 font-sans leading-relaxed"></textarea>
+      <div class="flex justify-between items-center mt-3 gap-2 flex-wrap">
+        <span class="text-xs text-gray-400 dark:text-gray-500">편집 후 복사해서 카톡으로 전송하세요</span>
+        <div class="flex gap-2">
+          <button @click="copyKakaoMessage()"
+                  class="text-sm bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded transition">
+            📋 복사
+          </button>
+          <button @click="showKakaoModal = false"
+                  class="text-sm px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-700 dark:text-gray-200">
+            닫기
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- v2.8.0 FF: 견적 초안 미리보기 + 편집 + 생성 모달 -->
+  <div x-show="showQuoteModal" x-cloak
+       @click.self="showQuoteModal = false"
+       @keydown.escape.window="showQuoteModal = false"
+       class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+    <div class="bg-white dark:bg-gray-800 dark:text-gray-100 rounded-xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto p-5">
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="font-bold text-lg flex items-center gap-2">
+          <span>💰</span> 견적 초안 미리보기
+        </h3>
+        <button @click="showQuoteModal = false" class="text-gray-400 hover:text-gray-700 dark:text-gray-200 text-xl leading-none">×</button>
+      </div>
+      <div class="text-xs text-gray-500 dark:text-gray-400 mb-3">
+        AI 분석 결과를 기반으로 자동 채워질 값입니다. 직접 수정 가능 — [생성] 누르면 본인 양식에 셀이 채워진 사본이 상담 폴더에 저장됩니다.
+      </div>
+
+      <div class="space-y-2 mb-4">
+        <template x-for="key in quoteFieldOrder" :key="key">
+          <div class="grid grid-cols-3 gap-2 items-start">
+            <label class="text-xs text-gray-700 dark:text-gray-200 font-medium pt-1.5" x-text="quoteFieldLabels[key] || key"></label>
+            <textarea x-show="key === 'site_address' || key === 'memo'" x-cloak
+                      x-model="quoteData[key]" rows="2"
+                      class="col-span-2 text-sm px-2 py-1 border border-gray-300 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 rounded focus:outline-none focus:border-blue-500"></textarea>
+            <input type="text" x-show="!(key === 'site_address' || key === 'memo')" x-cloak
+                   x-model="quoteData[key]"
+                   class="col-span-2 text-sm px-2 py-1 border border-gray-300 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 rounded focus:outline-none focus:border-blue-500"/>
+          </div>
+        </template>
+      </div>
+
+      <div x-show="quoteGenError" x-cloak class="bg-red-50 border border-red-300 dark:border-red-700 rounded-lg p-3 text-sm text-red-900 dark:text-red-200 mb-3 whitespace-pre-line" x-text="quoteGenError"></div>
+
+      <div class="flex gap-2 justify-end">
+        <button @click="showQuoteModal = false"
+                class="text-sm text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100 px-3 py-1.5">
+          닫기
+        </button>
+        <button @click="generateQuote()" :disabled="quoteGenerating"
+                class="text-sm bg-amber-600 hover:bg-amber-700 text-white px-4 py-1.5 rounded disabled:bg-gray-300">
+          <span x-show="!quoteGenerating">💰 견적 초안 생성</span>
+          <span x-show="quoteGenerating" x-cloak>⏳ 생성 중...</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- v2.6.0 JJ: OJT 동기화 미리보기 + 편집 + 실행 모달 -->
+  <div x-show="showOjtSyncModal" x-cloak
+       @click.self="showOjtSyncModal = false"
+       @keydown.escape.window="showOjtSyncModal = false"
+       class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+    <div class="bg-white dark:bg-gray-800 dark:text-gray-100 rounded-xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto p-5">
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="font-bold text-lg flex items-center gap-2">
+          <span>📊</span> OJT 자동 동기화 — 미리보기
+        </h3>
+        <button @click="showOjtSyncModal = false" class="text-gray-400 hover:text-gray-700 dark:text-gray-200 text-xl leading-none">×</button>
+      </div>
+
+      <div class="text-xs text-gray-500 dark:text-gray-400 mb-3">
+        AI 분석 결과를 바탕으로 자동 채워진 값입니다. 직접 수정 가능 — [동기화 실행] 누르면 OJT 엑셀에 새 행 추가.
+      </div>
+
+      <!-- 데이터 편집 폼 -->
+      <div class="space-y-2 mb-4">
+        <template x-for="key in ojtFieldOrder" :key="key">
+          <div class="grid grid-cols-3 gap-2 items-start">
+            <label class="text-xs text-gray-700 dark:text-gray-200 font-medium pt-1.5" x-text="ojtFieldLabels[key] || key"></label>
+            <textarea x-show="key === 'memo' || key === 'construction' || key === 'address'" x-cloak
+                      x-model="ojtSyncData[key]"
+                      rows="2"
+                      class="col-span-2 text-sm px-2 py-1 border border-gray-300 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 rounded focus:outline-none focus:border-blue-500"></textarea>
+            <input type="text" x-show="!(key === 'memo' || key === 'construction' || key === 'address')" x-cloak
+                   x-model="ojtSyncData[key]"
+                   class="col-span-2 text-sm px-2 py-1 border border-gray-300 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 rounded focus:outline-none focus:border-blue-500"/>
+          </div>
+        </template>
+      </div>
+
+      <!-- 진행 확률 빠른 선택 -->
+      <div class="mb-4 flex items-center gap-2">
+        <span class="text-xs text-gray-700 dark:text-gray-200 font-medium">진행 확률 빠른 선택:</span>
+        <template x-for="p in [{k:'A', label:'A 진행', color:'bg-emerald-100 dark:bg-emerald-800/40 text-emerald-800 dark:text-emerald-200'},
+                              {k:'B', label:'B 애매', color:'bg-amber-100 dark:bg-amber-800/40 text-amber-800 dark:text-amber-200'},
+                              {k:'C', label:'C 불발', color:'bg-red-100 dark:bg-red-800/40 text-red-800 dark:text-red-200'}]" :key="p.k">
+          <button @click="ojtSyncData.probability = p.k"
+                  :class="ojtSyncData.probability === p.k ? p.color + ' border-2 border-current font-semibold' : 'bg-gray-50 dark:bg-gray-700 border-2 border-transparent text-gray-600 dark:text-gray-300'"
+                  class="text-xs px-3 py-1 rounded transition">
+            <span x-text="p.label"></span>
+          </button>
+        </template>
+      </div>
+
+      <!-- 결과/에러 -->
+      <div x-show="ojtSyncResult" x-cloak class="bg-emerald-50 dark:bg-emerald-900/30 border border-emerald-300 dark:border-emerald-700 rounded-lg p-3 text-sm text-emerald-900 dark:text-emerald-200 mb-3">
+        ✅ OJT 동기화 완료 — <strong x-text="ojtSyncResult && ojtSyncResult.row"></strong>번째 행에 추가됨.
+        <div class="text-[11px] text-emerald-700 dark:text-emerald-400 mt-1">백업: <span x-text="ojtSyncResult && ojtSyncResult.backup_path" class="font-mono break-all"></span></div>
+      </div>
+      <div x-show="ojtSyncError" x-cloak class="bg-red-50 border border-red-300 dark:border-red-700 rounded-lg p-3 text-sm text-red-900 dark:text-red-200 mb-3 whitespace-pre-line" x-text="ojtSyncError"></div>
+
+      <!-- 액션 버튼 -->
+      <div class="flex gap-2 justify-end">
+        <button @click="showOjtSyncModal = false"
+                class="text-sm text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100 px-3 py-1.5">
+          닫기
+        </button>
+        <button @click="runOjtSync()"
+                :disabled="ojtSyncRunning"
+                class="text-sm bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-1.5 rounded disabled:bg-gray-300">
+          <span x-show="!ojtSyncRunning">📊 동기화 실행</span>
+          <span x-show="ojtSyncRunning" x-cloak>⏳ 실행 중...</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- v2.5.6 O1: AI 분석 클릭 시 Ollama 미설치/모델 없음 안내 모달 -->
+  <div x-show="showOllamaSetupModal" x-cloak
+       @click.self="showOllamaSetupModal = false"
+       @keydown.escape.window="showOllamaSetupModal = false"
+       class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+    <div class="bg-white dark:bg-gray-800 dark:text-gray-100 rounded-xl shadow-xl max-w-lg w-full p-5">
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="font-bold text-lg flex items-center gap-2">
+          <span>🤖</span> AI 분석을 쓰려면 Ollama 가 필요합니다
+        </h3>
+        <button @click="showOllamaSetupModal = false" class="text-gray-400 hover:text-gray-700 dark:text-gray-200 text-xl leading-none">×</button>
+      </div>
+
+      <!-- 미설치 -->
+      <template x-if="ollamaState === 'no_ollama'">
+        <div class="space-y-3">
+          <div class="bg-amber-50 dark:bg-amber-900/30 border border-amber-300 dark:border-amber-700 rounded-lg p-3 text-sm text-amber-900 dark:text-amber-200 leading-relaxed">
+            <div class="font-semibold mb-1">Ollama 가 설치되어 있지 않습니다.</div>
+            <div class="text-xs">
+              ① 아래 버튼 → 설치 파일 다운로드 → 더블클릭 설치<br>
+              ② cmd 창에서 <code class="bg-amber-100 dark:bg-amber-800/50 px-1 rounded">ollama pull qwen2.5:3b</code> 실행 (~1.9GB)<br>
+              ③ InterioNote 다시 시작 또는 아래 [다시 확인]
+            </div>
+          </div>
+          <div class="text-[11px] text-gray-500 dark:text-gray-400">
+            💡 녹음·전사·재처리·메모는 Ollama 없이도 그대로 동작합니다. AI 요약·체크리스트만 못 쓸 뿐.
+          </div>
+          <div class="flex gap-2 flex-wrap">
+            <button @click="openOllamaDownload()"
+                    class="text-sm bg-amber-600 hover:bg-amber-700 text-white px-3 py-1.5 rounded">
+              📥 Ollama 다운로드
+            </button>
+            <button @click="recheckOllama()"
+                    :disabled="ollamaState === 'checking'"
+                    class="text-sm bg-white dark:bg-gray-700 border border-amber-300 dark:border-amber-600 text-amber-900 dark:text-amber-200 hover:bg-amber-100 dark:hover:bg-gray-600 px-3 py-1.5 rounded">
+              🔄 다시 확인
+            </button>
+            <button @click="showOllamaSetupModal = false"
+                    class="text-sm text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 px-3 py-1.5">
+              나중에
+            </button>
+          </div>
+        </div>
+      </template>
+
+      <!-- 모델 없음 -->
+      <template x-if="ollamaState === 'no_model'">
+        <div class="space-y-3">
+          <div class="bg-amber-50 dark:bg-amber-900/30 border border-amber-300 dark:border-amber-700 rounded-lg p-3 text-sm text-amber-900 dark:text-amber-200 leading-relaxed">
+            <div class="font-semibold mb-1">Ollama 는 설치돼 있지만 AI 모델이 없습니다.</div>
+            <div class="text-xs">
+              cmd 창 (시작 메뉴 → cmd) 에서 <code class="bg-amber-100 dark:bg-amber-800/50 px-1 rounded">ollama pull qwen2.5:3b</code> 한 번 실행 (~1.9GB).<br>
+              완료 후 [다시 확인] 클릭.
+            </div>
+          </div>
+          <div class="flex gap-2 flex-wrap">
+            <button @click="recheckOllama()"
+                    :disabled="ollamaState === 'checking'"
+                    class="text-sm bg-amber-600 hover:bg-amber-700 text-white px-3 py-1.5 rounded">
+              🔄 다시 확인
+            </button>
+            <button @click="showOllamaSetupModal = false"
+                    class="text-sm text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 px-3 py-1.5">
+              나중에
+            </button>
+          </div>
+        </div>
+      </template>
+
+      <!-- checking 또는 그 외 (방금 ok 됐다면 자동 닫힘 처리) -->
+      <template x-if="ollamaState === 'checking'">
+        <div class="text-sm text-gray-600 dark:text-gray-300">⏳ 가용성 확인 중...</div>
+      </template>
+      <template x-if="ollamaState === 'ok'">
+        <div class="space-y-3">
+          <div class="text-sm text-emerald-700 dark:text-emerald-300">
+            ✅ Ollama 정상 — 다시 [✨ 분석 시작] 을 눌러주세요.
+          </div>
+          <button @click="showOllamaSetupModal = false"
+                  class="text-sm bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded">
+            확인
+          </button>
+        </div>
+      </template>
+    </div>
+  </div>
+
+  <!-- v2.5.1 H1: 폴더명 자동 수정 제안 모달 -->
+  <div x-show="showFolderSuggestModal" x-cloak
+       @click.self="dismissFolderSuggest()"
+       class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+    <div class="bg-white dark:bg-gray-800 rounded-xl shadow-xl max-w-lg w-full p-5 dark:text-gray-100">
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="font-bold text-lg flex items-center gap-2">📁 고객 폴더명 수정 제안</h3>
+        <button @click="dismissFolderSuggest()" class="text-gray-400 hover:text-gray-700 dark:text-gray-200 dark:hover:text-gray-200 text-xl leading-none">×</button>
+      </div>
+      <p class="text-sm text-gray-700 dark:text-gray-300 mb-3">
+        AI 분석에서 새 정보를 발견했습니다. 폴더명을 더 자세하게 바꾸시겠습니까?
+      </p>
+      <div class="space-y-2 text-sm">
+        <div class="bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded p-2">
+          <div class="text-[11px] text-gray-500 dark:text-gray-400 dark:text-gray-500">현재 이름</div>
+          <div class="font-mono break-all" x-text="folderSuggestion && folderSuggestion.current_folder_name"></div>
+        </div>
+        <div class="bg-emerald-50 dark:bg-emerald-900/30 border border-emerald-300 dark:border-emerald-700 rounded p-2">
+          <div class="text-[11px] text-emerald-700 dark:text-emerald-300 mb-1">제안 (괄호 안 부분 수기 편집 가능)</div>
+          <input type="text" x-model="folderRenameDescriptor"
+                 class="w-full px-2 py-1 border border-emerald-300 dark:border-emerald-600 dark:bg-gray-900 rounded font-mono text-sm focus:outline-none focus:border-emerald-500"/>
+          <div class="text-[10px] text-emerald-700 dark:text-emerald-300 mt-1">
+            결과: <span class="font-mono break-all"
+              x-text="folderSuggestion && (folderSuggestion.current_folder_name.split(' 고객님(')[0] + ' 고객님(' + folderRenameDescriptor + ')')"></span>
+          </div>
+        </div>
+      </div>
+      <div x-show="folderRenameError" x-cloak class="mt-2 text-xs text-red-700 bg-red-50 border border-red-200 rounded p-2"
+           x-text="folderRenameError"></div>
+      <div class="mt-4 flex justify-end gap-2">
+        <button @click="dismissFolderSuggest()"
+                :disabled="folderRenameApplying"
+                class="px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-50 dark:bg-gray-800 dark:hover:bg-gray-700">
+          거절 (현재 이름 유지)
+        </button>
+        <button @click="applyFolderRename()"
+                :disabled="folderRenameApplying"
+                class="px-3 py-1.5 text-sm bg-emerald-600 hover:bg-emerald-700 text-white rounded disabled:bg-gray-300">
+          <span x-show="!folderRenameApplying">✓ 수락 — 폴더명 변경</span>
+          <span x-show="folderRenameApplying" x-cloak>⏳ 변경 중...</span>
+        </button>
+      </div>
+      <div class="mt-3 text-[11px] text-gray-500 dark:text-gray-400 dark:text-gray-500 leading-snug">
+        ⚠ 폴더명 변경은 디스크 폴더 + DB 모두 한 번에 적용됩니다. 기존 녹음 / 분석 결과 모두 새 폴더로 이동되며 데이터는 그대로 유지됩니다.
+      </div>
+    </div>
+  </div>
+
+  <!-- ⑦ v3.5.0: 발화 통계 모달 -->
+  <div x-show="showSpeechStats" x-cloak
+       class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+       @keydown.escape.window="showSpeechStats=false">
+    <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-xl max-h-[85vh] flex flex-col"
+         @click.outside="showSpeechStats=false">
+      <div class="px-6 py-4 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between">
+        <h2 class="font-bold dark:text-gray-100">📊 발화 통계</h2>
+        <button @click="showSpeechStats=false" class="text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 text-xl">×</button>
+      </div>
+      <div class="p-5 overflow-y-auto flex-1">
+        <div x-show="speechStatsLoading" class="text-center text-gray-400 dark:text-gray-500 py-8">⏳ 분석 중...</div>
+        <template x-if="!speechStatsLoading && speechStats">
+          <div class="space-y-4">
+            <div class="text-sm text-gray-600 dark:text-gray-300">총 <strong x-text="speechStats.total"></strong>개 발화 · <strong x-text="speechStats.total_duration_sec + '초'"></strong></div>
+            <!-- 화자별 -->
+            <div>
+              <div class="text-xs font-semibold text-gray-500 dark:text-gray-400 mb-2">화자별 발화 비율</div>
+              <div class="space-y-2">
+                <template x-for="[sp, info] in Object.entries(speechStats.by_speaker)" :key="sp">
+                  <div>
+                    <div class="flex items-center justify-between text-sm mb-1">
+                      <span class="font-medium dark:text-gray-200" x-text="sp === 'me' ? '나' : (sp === 'client' ? '고객' : sp)"></span>
+                      <span class="text-gray-500 dark:text-gray-400" x-text="info.ratio + '% (' + info.count + '개, ' + info.duration_sec + '초)'"></span>
+                    </div>
+                    <div class="w-full bg-gray-100 dark:bg-gray-700 rounded-full h-2">
+                      <div class="h-2 rounded-full bg-blue-500" :style="'width:' + info.ratio + '%'"></div>
+                    </div>
+                  </div>
+                </template>
+              </div>
+            </div>
+            <!-- 단어 빈도 -->
+            <div x-show="speechStats.word_freq && speechStats.word_freq.length > 0">
+              <div class="text-xs font-semibold text-gray-500 dark:text-gray-400 mb-2">자주 나온 단어 (Top 15)</div>
+              <div class="flex flex-wrap gap-1.5">
+                <template x-for="w in speechStats.word_freq" :key="w.word">
+                  <span class="text-xs bg-purple-50 dark:bg-purple-900/30 border border-purple-200 dark:border-purple-700/50 text-purple-800 dark:text-purple-300 px-2 py-0.5 rounded-full">
+                    <span x-text="w.word"></span>
+                    <span class="text-purple-500 dark:text-purple-400 ml-1" x-text="'(' + w.count + ')'"></span>
+                  </span>
+                </template>
+              </div>
+            </div>
+          </div>
+        </template>
+        <div x-show="!speechStatsLoading && (!speechStats || speechStats.total === 0)" class="text-sm text-gray-400 dark:text-gray-500 text-center py-8">
+          전사 카드가 없습니다. 녹음 후 통계를 확인하세요.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ⑬ v3.5.0: 이메일 초안 모달 -->
+  <div x-show="showEmailDraftModal" x-cloak
+       class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+       @keydown.escape.window="showEmailDraftModal=false">
+    <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col"
+         @click.outside="showEmailDraftModal=false">
+      <div class="px-6 py-4 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between">
+        <h2 class="font-bold dark:text-gray-100">✉ 이메일 초안 생성</h2>
+        <button @click="showEmailDraftModal=false" class="text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 text-xl">×</button>
+      </div>
+      <div class="p-5 space-y-3 flex-1 overflow-y-auto">
+        <div class="flex gap-2">
+          <button @click="emailDraftTone='formal'; generateEmailDraftLive()"
+                  :class="emailDraftTone==='formal' ? 'bg-blue-600 text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300'"
+                  class="text-sm px-3 py-1.5 rounded">공식 이메일</button>
+          <button @click="emailDraftTone='friendly'; generateEmailDraftLive()"
+                  :class="emailDraftTone==='friendly' ? 'bg-blue-600 text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300'"
+                  class="text-sm px-3 py-1.5 rounded">카카오 스타일</button>
+        </div>
+        <div x-show="emailDraftState==='running'" class="text-center text-gray-500 dark:text-gray-400 py-8">
+          <div class="inline-block w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+          <div class="mt-2 text-sm">AI가 초안을 작성 중입니다...</div>
+        </div>
+        <template x-if="emailDraftState==='done' && emailDraftResult">
+          <div class="space-y-2">
+            <div class="bg-gray-50 dark:bg-gray-700 rounded-lg p-3">
+              <div class="text-xs text-gray-500 dark:text-gray-400 mb-1">제목</div>
+              <div class="font-medium dark:text-gray-100" x-text="emailDraftResult.subject"></div>
+            </div>
+            <div class="bg-gray-50 dark:bg-gray-700 rounded-lg p-3">
+              <div class="text-xs text-gray-500 dark:text-gray-400 mb-1">본문</div>
+              <div class="text-sm dark:text-gray-200 whitespace-pre-wrap leading-relaxed" x-text="emailDraftResult.body"></div>
+            </div>
+            <button @click="copyEmailDraft()" class="w-full text-sm bg-blue-600 hover:bg-blue-700 text-white py-2 rounded">📋 클립보드 복사</button>
+          </div>
+        </template>
+        <div x-show="emailDraftState==='error'" class="text-sm text-red-600 dark:text-red-400" x-text="emailDraftError"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ⑭ v3.5.0: QR 코드 모달 -->
+  <div x-show="showQrLiveModal" x-cloak
+       class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+       @keydown.escape.window="showQrLiveModal=false">
+    <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-sm p-6 text-center"
+         @click.outside="showQrLiveModal=false">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="font-bold dark:text-gray-100">📱 상담 요약 QR</h2>
+        <button @click="showQrLiveModal=false" class="text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 text-xl">×</button>
+      </div>
+      <img :src="qrLiveUrl" class="mx-auto w-48 h-48 rounded-lg border border-gray-200 dark:border-gray-700" alt="QR Code"/>
+      <div class="text-xs text-gray-500 dark:text-gray-400 mt-3">스마트폰으로 스캔하면 상담 요약 페이지가 열립니다.</div>
+    </div>
+  </div>
+
 </div>
 
 
@@ -645,6 +1836,14 @@ function livePage() {
     warmupInfo: {},          // {whisper_size, noise_suppression_enabled, ...}
 
     starting: false,
+
+    // v2.4.2: 녹음 시작 카운트다운 (3, 2, 1)
+    countdownNum: 0,
+    _countdownTimer: null,
+
+    // v2.5.2: 새 카드 도착 하이라이트
+    flashSegId: null,
+    _flashClearTimer: null,
     stopping: false,
     errorMsg: '',
 
@@ -666,13 +1865,175 @@ function livePage() {
     // --- Phase 3D: 화자 라벨링 ---
     _keydownHandler: null,
 
+    // --- Phase 8A: 카드 텍스트 인라인 편집 ---
+    editingId: null,        // 현재 편집 중인 segment id (null = 아무것도 편집 안 함)
+    editingText: '',        // 편집 중 input 값
+    _editingOriginal: '',   // 취소 시 복원용
+
+    // --- v2.5.0: 카드 검색 (B) + 단축키 도움말 (D) + 클립보드 토스트 (C) ---
+    cardSearchOpen: false,
+    cardSearchQuery: '',
+    showShortcutHelp: false,
+    copyToast: '',          // brief "복사됨" 메시지
+
+    // --- v2.5.6 O1/O2: Ollama 가용성 (헤더 배지 + AI 분석 사전 체크 모달) ---
+    ollamaState: 'checking',   // checking | ok | no_ollama | no_model
+    ollamaInfo: null,
+    showOllamaSetupModal: false,  // O1: AI 분석 클릭 시 미설치면 띄움
+
+    // --- v2.5.6 W1: 오디오 플레이어 재생 속도 ---
+    playbackRate: 1.0,
+
+    // --- v2.6.0 K: 태그 시스템 ---
+    meetingTags: [],
+    tagInput: '',
+    tagSuggestions: [],   // 자동완성 후보 (전체 DB + config seeds)
+    tagsSaveState: 'idle',  // idle | saving | saved
+    _tagsSavedTimer: null,
+
+    // --- v2.6.0 L: 진행 단계 추천 ---
+    stageSuggestion: null,   // {client_id, current_stage, suggested_stage, stages}
+
+    // --- v2.7.0 D: 마이크 레벨 미터 (WebAudio API) ---
+    micMeterActive: false,
+    micLevel: 0,           // 0.0 ~ 1.0 (RMS 정규화)
+    micMeterError: '',
+    _micStream: null,
+    _micCtx: null,
+    _micAnalyser: null,
+    _micRaf: null,
+    _micBuf: null,
+
+    // --- v3.0.0: 카톡 문구 ---
+    showKakaoModal: false,
+    kakaoLoading: false,
+    kakaoMessage: '',
+    kakaoClientPhone: '',
+
+    async openKakaoModal() {
+      if (!this.meetingId) return;
+      this.kakaoLoading = true;
+      try {
+        const r = await fetch('/api/meetings/' + this.meetingId + '/kakao-message');
+        if (!r.ok) {
+          const err = await r.json().catch(() => ({}));
+          alert('카톡 문구 생성 실패: ' + (err.detail || 'HTTP ' + r.status));
+          return;
+        }
+        const data = await r.json();
+        this.kakaoMessage = data.message || '';
+        this.kakaoClientPhone = data.client_phone || '';
+        this.showKakaoModal = true;
+      } catch (e) {
+        alert('카톡 문구 생성 오류: ' + (e.message || e));
+      } finally {
+        this.kakaoLoading = false;
+      }
+    },
+
+    copyKakaoMessage() {
+      if (!this.kakaoMessage) return;
+      navigator.clipboard.writeText(this.kakaoMessage).then(() => {
+        this.showCopyToast('📋 카톡 문구 복사됨!');
+      }).catch(() => {
+        // fallback: execCommand
+        const ta = document.createElement('textarea');
+        ta.value = this.kakaoMessage;
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+        this.showCopyToast('📋 카톡 문구 복사됨!');
+      });
+    },
+
+    // --- v2.8.0 FF: 견적서 초안 ---
+    quotePreview: null,
+    showQuoteModal: false,
+    quoteData: {},
+    quoteGenerating: false,
+    quoteGenError: '',
+    quoteResultPath: '',
+    quoteWrittenCount: 0,
+    quoteFieldOrder: ['client_name', 'client_phone', 'site_address', 'construction_period',
+                      'designer_name', 'size_pyeong', 'size_m2', 'quote_date', 'construction_type', 'memo'],
+    quoteFieldLabels: {
+      client_name: '고객명',
+      client_phone: '연락처',
+      site_address: '공사현장 주소',
+      construction_period: '공사기간',
+      designer_name: '담당자',
+      size_pyeong: '평형',
+      size_m2: '면적 (m²)',
+      quote_date: '견적일',
+      construction_type: '공사 종류',
+      memo: '비고',
+    },
+
+    // --- v2.6.0 JJ: OJT 동기화 ---
+    ojtPreview: null,         // {is_first_consult, configured, data, current_file_path, ...}
+    showOjtSyncModal: false,
+    ojtSyncData: {},          // 사용자가 편집 가능한 미리보기 데이터
+    ojtSyncRunning: false,
+    ojtSyncResult: null,
+    ojtSyncError: '',
+    ojtFieldOrder: ['consult_date', 'name', 'phone', 'address', 'construction', 'size', 'budget', 'measure_date', 'probability', 'memo'],
+    ojtFieldLabels: {
+      consult_date: '상담 일자',
+      name: '고객명',
+      phone: '연락처',
+      address: '주소',
+      construction: '공사 내용',
+      size: '평형/면적',
+      budget: '예산',
+      measure_date: '실측일',
+      probability: '진행 확률 (A/B/C)',
+      memo: '비고/메모',
+    },
+
+    // --- v2.5.1 I: 상담 메모 ---
+    meetingNotes: '',
+    notesSaveState: 'idle', // idle | saving | saved
+    _notesSavedTimer: null,
+
+    // --- v2.5.1 H1: 폴더명 자동 수정 제안 ---
+    folderSuggestion: null,  // {client_id, current_folder_name, suggested_descriptor, suggested_folder_name}
+    showFolderSuggestModal: false,
+    folderRenameApplying: false,
+    folderRenameError: '',
+    folderRenameDescriptor: '',  // 사용자가 수기 편집 가능
+
     // --- Phase 4: AI 분석 ---
     analysisState: 'idle',   // idle | running | done | error
     analysis: null,          // 분석 결과 data 객체
+
+    // renderableSections 메모이제이션 (analysis 객체가 바뀔 때만 재계산)
+    _renderableSectionsCache: null,
+    _analysisCacheKey: '',
+
+    // Phase 8B+: 분석 결과 인라인 편집
+    // path 형식 — 'summary' / 'action_items[2]' / 'client_info.budget' 등
+    analysisEditingPath: null,
+    analysisEditingValue: '',
+    _analysisEditOriginal: '',
+    analysisEditState: 'idle',   // idle | saving | saved | error
+    analysisEditError: '',
+    _analysisSavedTimer: null,
     analysisMeta: {},        // {md_path, json_path, model, total_duration_sec, ...}
     analysisError: '',
     analysisElapsed: 0,
     _analysisTimer: null,
+
+    // --- v3.0.0 Phase 3: 팔로업 메시지 ---
+    followupTemplates: [],
+    followupCopying: null,   // 현재 복사 중인 templateId
+    followupCopied: {},      // {id: true} 복사 완료 3초 표시
+
+    // --- v3.2.0 Phase 4: 준비 노트 (상담 전 메모) ---
+    preNotesText: '',
+    preNotesSaving: false,
+    preNotesSaved: false,
+    _preNotesTimer: null,
 
     // --- Phase 5C: 정확도 재처리 ---
     retranscribeState: 'idle',   // idle | running | done | error
@@ -682,8 +2043,22 @@ function livePage() {
     retranscribeElapsed: 0,
     _retranscribeTimer: null,
 
+    // Phase 8B+: 재전사 되돌리기 (snapshot 기반)
+    hasSnapshot: false,           // 서버에 되돌릴 수 있는 스냅샷이 있는지
+    undoState: 'idle',            // idle | running
+    undoResult: null,             // {restored_count, label, created_at}
+
     // ---------- init ----------
     async init() {
+      // v2.5.0: theme 초기 적용
+      try {
+        const t = localStorage.getItem('interionote.theme') || 'system';
+        const dark = (t === 'dark') ||
+          (t === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+        if (dark) document.documentElement.classList.add('dark');
+      } catch(e) {}
+      // v2.5.0: 마지막 재전사 모델 선택 기억 (서버 settings 에서 조회)
+      this._loadLastPostModel();
       // URL 쿼리에서 meeting_id 추출
       const params = new URLSearchParams(location.search);
       const m = params.get('m');
@@ -714,10 +2089,270 @@ function livePage() {
       } catch (e) { /* ignore */ }
       // 모델 warmup (비동기, 실패해도 UI는 로드됨)
       this.warmupModels(false);
+      // v3.2.0 Phase 4: 준비 노트 로드 (녹음 시작 전 setup 화면에서도 표시)
+      if (this.meetingId) this.loadPreNotes();
 
       // Phase 3D: 키보드 단축키 (1=나, 2=고객, 0=지우기)
       this._keydownHandler = (e) => this.handleKeydown(e);
       window.addEventListener('keydown', this._keydownHandler);
+
+      // v2.5.6: Ollama 가용성 백그라운드 체크 (헤더 배지용)
+      this.checkOllamaHealth();
+    },
+
+    // ===== v2.5.6 O1/O2: Ollama 가용성 체크 + AI 분석 사전 체크 =====
+    async checkOllamaHealth() {
+      try {
+        const r = await fetch('/api/ollama/health');
+        const data = await r.json().catch(() => null);
+        if (!data) {
+          this.ollamaState = 'no_ollama';
+          return;
+        }
+        this.ollamaInfo = data;
+        if (!data.ok) this.ollamaState = 'no_ollama';
+        else if (!data.model_ready) this.ollamaState = 'no_model';
+        else this.ollamaState = 'ok';
+      } catch (e) {
+        this.ollamaState = 'no_ollama';
+      }
+    },
+    async recheckOllama() {
+      this.ollamaState = 'checking';
+      await this.checkOllamaHealth();
+    },
+    openOllamaDownload() {
+      const url = 'https://ollama.com/download/windows';
+      if (window.pywebview && window.pywebview.api && window.pywebview.api.open_external_url) {
+        window.pywebview.api.open_external_url(url);
+      } else {
+        window.open(url, '_blank');
+      }
+    },
+
+    // ===== v2.6.0 K: 태그 =====
+    async loadTags() {
+      if (!this.meetingId) return;
+      try {
+        const r = await fetch('/api/meetings/' + this.meetingId + '/tags');
+        if (r.ok) {
+          const data = await r.json();
+          this.meetingTags = data.tags || [];
+        }
+      } catch (e) { /* ignore */ }
+      try {
+        const r = await fetch('/api/meetings/tags/all');
+        if (r.ok) {
+          const data = await r.json();
+          this.tagSuggestions = data.tags || [];
+        }
+      } catch (e) { /* ignore */ }
+    },
+    async _saveTagsAndFlash(newTags) {
+      this.tagsSaveState = 'saving';
+      try {
+        const r = await fetch('/api/meetings/' + this.meetingId + '/tags', {
+          method: 'PUT',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({tags: newTags}),
+        });
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        const data = await r.json();
+        this.meetingTags = data.tags || [];
+        this.tagsSaveState = 'saved';
+        if (this._tagsSavedTimer) clearTimeout(this._tagsSavedTimer);
+        this._tagsSavedTimer = setTimeout(() => { this.tagsSaveState = 'idle'; }, 1500);
+      } catch (e) {
+        this.tagsSaveState = 'idle';
+        alert('태그 저장 실패: ' + (e.message || e));
+      }
+    },
+    addTagFromInput() {
+      const raw = (this.tagInput || '').trim();
+      if (!raw) return;
+      // 콤마/공백 분리도 허용
+      const parts = raw.split(/[,\s]+/).map(s => s.trim()).filter(Boolean);
+      const next = [...this.meetingTags];
+      for (const p of parts) {
+        const cleaned = p.replace(/^#+/, '').replace(/[\s#,;|\\\/"']/g, '_').slice(0, 32);
+        if (cleaned && !next.includes(cleaned)) next.push(cleaned);
+      }
+      this.tagInput = '';
+      this._saveTagsAndFlash(next);
+    },
+    removeTag(t) {
+      const next = this.meetingTags.filter(x => x !== t);
+      this._saveTagsAndFlash(next);
+    },
+
+    // ===== v2.6.0 L: 진행 단계 추천 =====
+    async loadStageSuggestion() {
+      if (!this.meetingId) return;
+      try {
+        const r = await fetch('/api/meetings/' + this.meetingId + '/stage-suggestion');
+        if (r.ok) {
+          const data = await r.json();
+          // suggested_stage 가 있을 때만 노출
+          if (data.suggested_stage) {
+            this.stageSuggestion = data;
+          }
+        }
+      } catch (e) { /* ignore */ }
+    },
+    async applyStageSuggestion() {
+      if (!this.stageSuggestion || !this.stageSuggestion.suggested_stage) return;
+      try {
+        const r = await fetch('/api/clients/' + this.stageSuggestion.client_id + '/stage', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({stage: this.stageSuggestion.suggested_stage}),
+        });
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        this.stageSuggestion = null;
+      } catch (e) {
+        alert('단계 변경 실패: ' + (e.message || e));
+      }
+    },
+
+    // ===== v2.8.0 FF: 견적서 초안 =====
+    async loadQuotePreview() {
+      if (!this.meetingId) return;
+      try {
+        const r = await fetch('/api/quote/preview/' + this.meetingId);
+        if (r.ok) this.quotePreview = await r.json();
+      } catch (e) { /* ignore */ }
+    },
+    openQuoteModal() {
+      if (!this.quotePreview) return;
+      this.quoteData = {...(this.quotePreview.data || {})};
+      this.quoteGenError = '';
+      this.showQuoteModal = true;
+    },
+    async generateQuote() {
+      if (this.quoteGenerating) return;
+      this.quoteGenerating = true;
+      this.quoteGenError = '';
+      try {
+        const r = await fetch('/api/quote/generate/' + this.meetingId, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({data: this.quoteData}),
+        });
+        if (!r.ok) {
+          const err = await r.json().catch(() => ({detail: r.statusText}));
+          throw new Error(err.detail || ('HTTP ' + r.status));
+        }
+        const data = await r.json();
+        this.quoteResultPath = data.output_path || '';
+        this.quoteWrittenCount = data.written_count || 0;
+        this.showQuoteModal = false;
+      } catch (e) {
+        this.quoteGenError = '견적 초안 생성 실패: ' + (e.message || e);
+      } finally {
+        this.quoteGenerating = false;
+      }
+    },
+    openQuoteFile() {
+      if (!this.quoteResultPath) return;
+      if (window.pywebview && window.pywebview.api && window.pywebview.api.open_in_explorer) {
+        window.pywebview.api.open_in_explorer(this.quoteResultPath);
+      }
+    },
+
+    // v3.3.0 Phase 5: 폴더 빠른 열기
+    openFolder(path) {
+      if (!path) return;
+      if (window.pywebview && window.pywebview.api && window.pywebview.api.open_in_explorer) {
+        window.pywebview.api.open_in_explorer(path);
+      }
+    },
+    openSiteImageFolder() {
+      // 상담 폴더 → 두 단계 위(고객 폴더) → 현장 이미지 서브폴더
+      const meetingFolder = this.finalResult && this.finalResult.meeting_folder;
+      if (!meetingFolder) return;
+      // meeting_folder 예: C:\...\고객폴더\상담기록\2026-05-03_초도상담
+      // 고객폴더 = 2단계 위, 현장 이미지 = 고객폴더\현장 이미지
+      try {
+        // Windows 경로 분리: 마지막 두 세그먼트 제거
+        const parts = meetingFolder.replace(/\//g, '\\').split('\\');
+        parts.pop(); // 날짜 폴더 제거
+        parts.pop(); // 상담기록 제거
+        const clientFolder = parts.join('\\');
+        const imageFolder = clientFolder + '\\현장 이미지';
+        if (window.pywebview && window.pywebview.api && window.pywebview.api.open_in_explorer) {
+          window.pywebview.api.open_in_explorer(imageFolder);
+        }
+      } catch(e) { /* 경로 파싱 실패 무시 */ }
+    },
+
+    // ===== v2.6.0 JJ: OJT 동기화 =====
+    async loadOjtPreview() {
+      if (!this.meetingId) return;
+      try {
+        const r = await fetch('/api/ojt/preview/' + this.meetingId);
+        if (r.ok) {
+          this.ojtPreview = await r.json();
+        }
+      } catch (e) { /* ignore */ }
+    },
+    openOjtSyncModal() {
+      if (!this.ojtPreview) return;
+      // 미리보기 데이터를 편집 가능한 form 으로 복사
+      this.ojtSyncData = {...(this.ojtPreview.data || {})};
+      this.ojtSyncResult = null;
+      this.ojtSyncError = '';
+      this.showOjtSyncModal = true;
+    },
+    async runOjtSync() {
+      if (this.ojtSyncRunning) return;
+      this.ojtSyncRunning = true;
+      this.ojtSyncResult = null;
+      this.ojtSyncError = '';
+      try {
+        const r = await fetch('/api/ojt/sync/' + this.meetingId, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({data: this.ojtSyncData}),
+        });
+        if (!r.ok) {
+          const err = await r.json().catch(() => ({detail: r.statusText}));
+          throw new Error(err.detail || ('HTTP ' + r.status));
+        }
+        this.ojtSyncResult = await r.json();
+        // 미리보기 갱신 (already_synced_at 채우기)
+        await this.loadOjtPreview();
+      } catch (e) {
+        this.ojtSyncError = 'OJT 동기화 실패: ' + (e.message || e);
+      } finally {
+        this.ojtSyncRunning = false;
+      }
+    },
+
+    // ===== v2.6.0 A: PDF 출력 (window.print() — 새 창) =====
+    openPrintPage(kind) {
+      if (!this.meetingId) return;
+      const path = kind === 'transcript'
+        ? '/api/meetings/' + this.meetingId + '/print-transcript'
+        : '/api/meetings/' + this.meetingId + '/print-summary';
+      // 새 창에서 열기 — 사용자가 [📄 PDF로 저장] 버튼 또는 Ctrl+P
+      if (window.pywebview && window.pywebview.api && window.pywebview.api.open_external_url) {
+        // pywebview 환경 — 시스템 기본 브라우저 (또는 새 webview 창)
+        // 그냥 같은 윈도우에서 새 탭처럼 → 사실 pywebview 는 새 창 안 됨, 같은 창에서 열고 인쇄 후 뒤로가기 안내
+        window.location.href = path;
+      } else {
+        window.open(path, '_blank');
+      }
+    },
+    // 분석 시작 전 사전 체크. true 반환 시 정상 진행, false 면 모달 노출됨.
+    async _ensureOllamaReady() {
+      // 캐시된 상태가 ok 면 바로 통과 (재호출 비용 절약)
+      if (this.ollamaState === 'ok') return true;
+      // 그 외 (checking/no_ollama/no_model) 는 한 번 더 fresh 체크
+      await this.checkOllamaHealth();
+      if (this.ollamaState === 'ok') return true;
+      // 미설치 / 모델 없음 → 친절한 모달
+      this.showOllamaSetupModal = true;
+      return false;
     },
 
     // Phase 6C: 종료된 상담을 보기 전용으로 로드
@@ -750,7 +2385,120 @@ function livePage() {
       };
       // 분석 정보 있으면 같이 로드
       await this.loadExistingAnalysis();
+      // Phase 8B+: 되돌릴 수 있는 스냅샷이 있는지 체크
+      await this.checkSnapshot();
+      // v3.0.0 Phase 3: 팔로업 템플릿 로드
+      this.loadFollowupTemplates();
+      // v3.2.0 Phase 4: 준비 노트 로드
+      this.loadPreNotes();
+      // v2.6.0: 태그 + 단계 추천 + OJT 미리보기 백그라운드 로드 (병렬, 실패해도 무시)
+      this.loadTags();
+      this.loadStageSuggestion();
+      this.loadOjtPreview();
+      this.loadQuotePreview();
+      // v2.7.0 P-extra: 최근 본 상담 localStorage 에 기록
+      this._pushRecentMeeting(info);
       this.mode = 'finished';
+    },
+
+    // ===== v2.7.0 D: 마이크 레벨 미터 (WebAudio API + AnalyserNode) =====
+    async startMicMeter() {
+      this.micMeterError = '';
+      try {
+        // 사용자가 라디오로 deviceId 선택했으면 그 디바이스의 ID 를 navigator 에 전달 시도
+        // 단 sounddevice 가 쓰는 인덱스와 navigator.mediaDevices.enumerateDevices 의 deviceId 는 다른 시스템.
+        // 그래서 일단 default 마이크로 점검 (대부분 환경에서 충분)
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            echoCancellation: false,
+            noiseSuppression: false,
+            autoGainControl: false,
+          },
+          video: false,
+        });
+        this._micStream = stream;
+        const AC = window.AudioContext || window.webkitAudioContext;
+        const ctx = new AC();
+        this._micCtx = ctx;
+        const src = ctx.createMediaStreamSource(stream);
+        const an = ctx.createAnalyser();
+        an.fftSize = 1024;
+        an.smoothingTimeConstant = 0.4;
+        src.connect(an);
+        this._micAnalyser = an;
+        this._micBuf = new Uint8Array(an.fftSize);
+        this.micMeterActive = true;
+        // v2.7.1 fix: RMS×2 선형 스케일링은 음성 (RMS ~0.1) 에서 막대가 20% 까지만 → 너무 약해 보임.
+        // dB log 스케일 + peak hold 로 막대가 활기차게 움직이게 변경.
+        let peak = 0;
+        const tick = () => {
+          if (!this.micMeterActive || !this._micAnalyser) return;
+          this._micAnalyser.getByteTimeDomainData(this._micBuf);
+          // RMS 계산
+          let sum = 0;
+          for (let i = 0; i < this._micBuf.length; i++) {
+            const v = (this._micBuf[i] - 128) / 128;
+            sum += v * v;
+          }
+          const rms = Math.sqrt(sum / this._micBuf.length);
+          // dB 환산: -∞ (무음) ~ 0 (full scale).
+          // 사람 음성: -30dB ~ -10dB. 매장 음악·잡음: -50dB ~ -25dB.
+          const dB = 20 * Math.log10(rms + 1e-9);
+          // -60dB → 0%, 0dB → 100% 매핑 (60dB dynamic range)
+          let level = Math.max(0, Math.min(1, (dB + 60) / 60));
+          // Peak hold: 빠른 상승 + 천천히 하락 (시각적 안정)
+          if (level >= peak) {
+            peak = level;
+          } else {
+            peak = Math.max(level, peak - 0.04);  // 매 프레임 4% 씩 하강
+          }
+          this.micLevel = peak;
+          this._micRaf = requestAnimationFrame(tick);
+        };
+        tick();
+      } catch (e) {
+        this.micMeterError = '마이크 권한 또는 접근 실패: ' + (e.message || e) + ' — Windows 설정 → 개인정보 → 마이크 에서 InterioNote 가 접근 허용됐는지 확인하세요.';
+        this.micMeterActive = false;
+      }
+    },
+    stopMicMeter() {
+      this.micMeterActive = false;
+      this.micLevel = 0;
+      try {
+        if (this._micRaf) { cancelAnimationFrame(this._micRaf); this._micRaf = null; }
+        if (this._micStream) {
+          this._micStream.getTracks().forEach(t => t.stop());
+          this._micStream = null;
+        }
+        if (this._micCtx) {
+          try { this._micCtx.close(); } catch (e) {}
+          this._micCtx = null;
+        }
+        this._micAnalyser = null;
+        this._micBuf = null;
+      } catch (e) { /* ignore */ }
+    },
+
+    // v2.7.0 P-extra: 최근 본 상담 5건 localStorage 관리
+    _pushRecentMeeting(info) {
+      try {
+        const KEY = 'interionote.recent_meetings';
+        const raw = localStorage.getItem(KEY);
+        let arr = [];
+        try { arr = raw ? JSON.parse(raw) : []; } catch (e) { arr = []; }
+        // 같은 meeting_id 는 제거 (재진입 시 위로 올림)
+        arr = arr.filter(x => x && x.meeting_id !== this.meetingId);
+        arr.unshift({
+          meeting_id: this.meetingId,
+          meeting_type: info.meeting_type || '',
+          client_name: info.client_name || '',
+          descriptor: info.client_descriptor || '',
+          folder_name: info.folder_name || '',
+          opened_at: new Date().toISOString().slice(0, 19),
+        });
+        arr = arr.slice(0, 5);
+        localStorage.setItem(KEY, JSON.stringify(arr));
+      } catch (e) { /* localStorage 비활성 환경 무시 */ }
     },
 
     destroy() {
@@ -786,8 +2534,31 @@ function livePage() {
     handleKeydown(e) {
       // 입력 중이면 스킵
       const tag = (e.target && e.target.tagName) || '';
-      if (['INPUT', 'TEXTAREA', 'SELECT'].includes(tag)) return;
+      if (['INPUT', 'TEXTAREA', 'SELECT'].includes(tag)) {
+        // 단, ESC 는 검색창에서 처리
+        if (e.key === 'Escape' && this.cardSearchOpen) {
+          this.closeCardSearch();
+          e.preventDefault();
+        }
+        return;
+      }
       if (e.ctrlKey || e.altKey || e.metaKey) return;
+
+      // v2.5.1: 단축키 도움말은 F1 (한국어 키보드 호환), 카드 검색은 / 또는 F3
+      if (e.key === 'F1') {
+        this.showShortcutHelp = !this.showShortcutHelp;
+        e.preventDefault();
+        return;
+      }
+      if ((e.key === '/' || e.key === 'F3') && (this.mode === 'recording' || this.mode === 'finished')) {
+        this.openCardSearch();
+        e.preventDefault();
+        return;
+      }
+      if (e.key === 'Escape') {
+        if (this.showShortcutHelp) { this.showShortcutHelp = false; e.preventDefault(); return; }
+        if (this.cardSearchOpen) { this.closeCardSearch(); e.preventDefault(); return; }
+      }
 
       let speaker = null;
       if (e.key === '1') speaker = 'me';
@@ -865,6 +2636,65 @@ function livePage() {
       }
     },
 
+    // ----- Phase 8A: 카드 텍스트 인라인 편집 -----
+    startEdit(seg) {
+      if (!seg) return;
+      // 녹음 모드 / view 모드 양쪽에서 가능 (단독 테스트 모드만 차단)
+      if (this.mode !== 'recording' && !this.meetingId) return;
+      this.editingId = seg.id;
+      this.editingText = seg.text || '';
+      this._editingOriginal = seg.text || '';
+    },
+    cancelEdit() {
+      this.editingId = null;
+      this.editingText = '';
+      this._editingOriginal = '';
+    },
+    async commitEdit(seg) {
+      if (!seg || this.editingId !== seg.id) return;
+      const newText = (this.editingText || '').trim();
+      // 변경 없으면 그냥 종료
+      if (!newText || newText === this._editingOriginal) {
+        this.cancelEdit();
+        return;
+      }
+      // 낙관적 업데이트
+      const prevText = seg.text;
+      const prevEdited = seg.edited_at || null;
+      seg.text = newText;
+      seg.edited_at = new Date().toISOString().replace('T', ' ').slice(0, 19);
+      const targetId = seg.id;
+      this.cancelEdit();
+
+      let url;
+      if (this.mode === 'recording') {
+        url = '/api/recording/segments/' + targetId + '/text';
+      } else if (this.meetingId) {
+        url = '/api/meetings/' + this.meetingId + '/segments/' + targetId + '/text';
+      } else {
+        return;
+      }
+
+      try {
+        const r = await fetch(url, {
+          method: 'PATCH',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({text: newText}),
+        });
+        if (!r.ok) {
+          const err = await r.json().catch(() => ({detail: r.statusText}));
+          throw new Error(err.detail || ('HTTP ' + r.status));
+        }
+        const data = await r.json();
+        if (data && data.edited_at) seg.edited_at = data.edited_at;
+      } catch (e) {
+        // 롤백
+        seg.text = prevText;
+        seg.edited_at = prevEdited;
+        alert('카드 수정 저장 실패: ' + (e.message || e));
+      }
+    },
+
     async loadMeetingInfo() {
       if (!this.meetingId) return null;
       try {
@@ -887,6 +2717,8 @@ function livePage() {
           started_at: data.started_at,
           ended_at: data.ended_at,
         };
+        // v2.5.1 I: notes 가 있으면 채움
+        if (typeof data.notes === 'string') this.meetingNotes = data.notes;
         return data;
       } catch (e) {
         this.errorMsg = '상담 정보 로드 실패: ' + (e.message || e);
@@ -958,8 +2790,27 @@ function livePage() {
     },
 
     // ---------- actions ----------
+    // v2.4.2: 3-2-1 카운트다운 후 실제 녹음 API 호출
     async startRecording() {
+      if (this.countdownNum > 0 || this.starting) return;
+      // v2.7.0 D: 마이크 점검 중이었다면 녹음 시작 전 자동 정지 (마이크 핸들 충돌 방지)
+      if (this.micMeterActive) this.stopMicMeter();
       this.errorMsg = '';
+      this.countdownNum = 3;
+      // 1초마다 1씩 감소
+      const tick = () => {
+        this.countdownNum -= 1;
+        if (this.countdownNum > 0) {
+          this._countdownTimer = setTimeout(tick, 1000);
+        } else {
+          this._countdownTimer = null;
+          this._actuallyStartRecording();
+        }
+      };
+      this._countdownTimer = setTimeout(tick, 1000);
+    },
+
+    async _actuallyStartRecording() {
       this.starting = true;
       try {
         const body = {device_id: this.deviceId};
@@ -999,6 +2850,18 @@ function livePage() {
         this.mode = 'finished';
         // Phase 4: 기존 분석이 있으면 불러오기
         if (this.meetingId) this.loadExistingAnalysis();
+        // Phase 8B+: 이전 재전사 스냅샷이 있는지 (다시 열린 상담의 경우)
+        if (this.meetingId) this.checkSnapshot();
+        // v3.0.0 Phase 3: 팔로업 템플릿 로드
+        if (this.meetingId) this.loadFollowupTemplates();
+        // v3.2.0 Phase 4: 준비 노트 로드
+        if (this.meetingId) this.loadPreNotes();
+        // v2.6.0: 태그 + 단계 추천 + OJT 미리보기 백그라운드 로드
+        if (this.meetingId) {
+          this.loadTags();
+          this.loadStageSuggestion();
+          this.loadOjtPreview();
+        }
       } catch (e) {
         alert('종료 실패: ' + (e.message || e));
       } finally {
@@ -1024,8 +2887,98 @@ function livePage() {
       } catch (e) { /* ignore */ }
     },
 
+    // ---------- v3.0.0 Phase 3: 팔로업 메시지 ----------
+    async loadFollowupTemplates() {
+      try {
+        const mt = (this.meetingInfo && this.meetingInfo.meeting_type) || '';
+        if (!mt) return;
+        const r = await fetch('/api/followup-templates?meeting_type=' + encodeURIComponent(mt));
+        if (!r.ok) return;
+        this.followupTemplates = await r.json();
+      } catch (e) { /* 조용히 실패 */ }
+    },
+
+    async copyFollowup(templateId) {
+      this.followupCopying = templateId;
+      try {
+        const r = await fetch('/api/followup-templates/' + templateId + '/render', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({meeting_id: this.meetingId || null}),
+        });
+        const data = await r.json();
+        if (!r.ok || !data.ok) throw new Error(data.detail || '렌더 실패');
+        await navigator.clipboard.writeText(data.rendered);
+        this.followupCopied = {...this.followupCopied, [templateId]: true};
+        setTimeout(() => {
+          const next = {...this.followupCopied};
+          delete next[templateId];
+          this.followupCopied = next;
+        }, 3000);
+      } catch (e) {
+        alert('팔로업 복사 실패: ' + (e.message || String(e)));
+      } finally {
+        this.followupCopying = null;
+      }
+    },
+
+    // ---------- v3.2.0 Phase 4: 준비 노트 ----------
+    async loadPreNotes() {
+      if (!this.meetingId) return;
+      try {
+        const r = await fetch('/api/meetings/' + this.meetingId + '/pre-notes');
+        if (!r.ok) return;
+        const data = await r.json();
+        this.preNotesText = data.pre_notes || '';
+      } catch (e) { /* 조용히 실패 */ }
+    },
+
+    schedulePreNotesSave() {
+      if (this._preNotesTimer) clearTimeout(this._preNotesTimer);
+      this.preNotesSaved = false;
+      this._preNotesTimer = setTimeout(() => { this.savePreNotes(); }, 700);
+    },
+
+    async savePreNotes() {
+      if (!this.meetingId) return;
+      this.preNotesSaving = true;
+      try {
+        await fetch('/api/meetings/' + this.meetingId + '/pre-notes', {
+          method: 'PATCH',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({pre_notes: this.preNotesText}),
+        });
+        this.preNotesSaved = true;
+        setTimeout(() => { this.preNotesSaved = false; }, 2000);
+      } catch (e) { /* 조용히 실패 */ } finally {
+        this.preNotesSaving = false;
+      }
+    },
+
+    // v3.2.0 Phase 4: AI 분석 완료 브라우저 알림
+    _notifyAnalysisDone() {
+      try {
+        const clientName = (this.meetingInfo && this.meetingInfo.client_display) || '고객';
+        const body = `${clientName} 님 AI 분석이 완료되었습니다.`;
+        if ('Notification' in window) {
+          if (Notification.permission === 'granted') {
+            new Notification('InterioNote — AI 분석 완료 ✅', {body, icon: '/static/favicon.ico'});
+          } else if (Notification.permission !== 'denied') {
+            Notification.requestPermission().then(p => {
+              if (p === 'granted') new Notification('InterioNote — AI 분석 완료 ✅', {body, icon: '/static/favicon.ico'});
+            });
+          }
+        }
+      } catch(e) { /* 알림 미지원 환경 무시 */ }
+    },
+
     async runAnalysis() {
       if (!this.meetingId || this.analysisState === 'running') return;
+
+      // v2.5.6 O1: 분석 시작 전에 Ollama 가용성 사전 체크 — 미설치 시 친절한 모달
+      const ok = await this._ensureOllamaReady();
+      if (!ok) return;  // 모달이 뜨고 사용자가 설치 안내 받음
+
       this.analysisState = 'running';
       this.analysisError = '';
       this.analysisElapsed = 0;
@@ -1051,6 +3004,12 @@ function livePage() {
           parse_ok: data.parse_ok,
         };
         this.analysisState = 'done';
+        // v3.2.0 Phase 4: AI 분석 완료 브라우저 알림
+        this._notifyAnalysisDone();
+        // v3.5.3: 원격 상태 배지 즉시 갱신 (분석이 어디서 돌았는지 반영)
+        if (window.refreshRemoteStatus) window.refreshRemoteStatus();
+        // v2.5.1 H1: 분석에 site_info 가 있으면 폴더명 제안 fetch
+        this._maybeFetchFolderSuggestion();
       } catch (e) {
         this.analysisError = e.message || String(e);
         this.analysisState = 'error';
@@ -1060,6 +3019,236 @@ function livePage() {
           this._analysisTimer = null;
         }
       }
+    },
+
+    // ===== v2.5.6 P1: 전체 대화 클립보드 복사 =====
+    copyFullTranscript() {
+      const list = (this.mode === 'recording' ? this.segments : (this.finalResult.segments || []));
+      if (!list || list.length === 0) {
+        this.copyToast = '복사할 카드가 없습니다';
+        setTimeout(() => { this.copyToast = ''; }, 1500);
+        return;
+      }
+      const speakerLabel = (sp) => sp === 'me' ? '나' : (sp === 'client' ? '고객' : '·');
+      const lines = list.map(s => {
+        const ts = this.formatTime((s.start_ms || 0) / 1000);
+        return `[${ts}] ${speakerLabel(s.speaker)}: ${s.text || ''}`;
+      });
+      // 헤더 한 줄 (상담 정보)
+      const head = [];
+      if (this.meetingInfo && this.meetingInfo.client_display) {
+        head.push(`# ${this.meetingInfo.client_display} — ${this.meetingInfo.meeting_type || '상담'}`);
+      }
+      if (this.meetingInfo && this.meetingInfo.started_at) {
+        head.push(`# ${this.meetingInfo.started_at}`);
+      }
+      const text = (head.length ? head.join('\n') + '\n\n' : '') + lines.join('\n');
+      this.copyToClipboard(text, '전체 대화 복사됨');
+      setTimeout(() => { this.copyToast = ''; }, 2000);
+    },
+
+    // ===== v2.5.0: 카드 검색 (B) =====
+    openCardSearch() {
+      this.cardSearchOpen = true;
+      this.$nextTick(() => {
+        const el = document.querySelector('input[data-card-search]');
+        if (el) el.focus();
+      });
+    },
+    closeCardSearch() {
+      this.cardSearchOpen = false;
+      this.cardSearchQuery = '';
+    },
+    matchesQuery(text) {
+      const q = (this.cardSearchQuery || '').trim();
+      if (!q) return false;
+      return (text || '').toLowerCase().includes(q.toLowerCase());
+    },
+    get filteredSegmentsCount() {
+      const q = (this.cardSearchQuery || '').trim();
+      if (!q) return null;
+      const list = (this.mode === 'recording' ? this.segments : (this.finalResult.segments || []));
+      return list.filter(s => this.matchesQuery(s.text)).length;
+    },
+
+    showCopyToast(msg) {
+      this.copyToast = msg || '복사됨 ✓';
+      setTimeout(() => { this.copyToast = ''; }, 2000);
+    },
+
+    // ===== v2.5.0: 클립보드 복사 (C) — AI 분석 / 일반 텍스트 공통 =====
+    async copyToClipboard(text, label) {
+      try {
+        await navigator.clipboard.writeText(text || '');
+        this.copyToast = (label || '복사됨') + ' ✓';
+      } catch(e) {
+        // 일부 환경에서 navigator.clipboard 안 되면 textarea trick
+        try {
+          const ta = document.createElement('textarea');
+          ta.value = text || '';
+          ta.style.position = 'fixed'; ta.style.opacity = '0';
+          document.body.appendChild(ta);
+          ta.select();
+          document.execCommand('copy');
+          document.body.removeChild(ta);
+          this.copyToast = (label || '복사됨') + ' ✓';
+        } catch(e2) {
+          this.copyToast = '복사 실패';
+        }
+      }
+      setTimeout(() => { this.copyToast = ''; }, 1500);
+    },
+    copyAnalysisSection(section) {
+      // section: {key, title, kind, items|entries|value}
+      let lines = [];
+      lines.push('## ' + (section.title || section.key));
+      if (section.kind === 'list') {
+        for (const it of (section.items || [])) lines.push('- ' + it);
+      } else if (section.kind === 'object') {
+        for (const e of (section.entries || [])) lines.push('- ' + (e.label || e.key) + ': ' + (e.value || ''));
+      } else if (section.kind === 'text') {
+        lines.push(section.value || '');
+      }
+      this.copyToClipboard(lines.join('\n'), section.title);
+    },
+    copyAllAnalysis() {
+      if (!this.analysis) return;
+      let lines = [];
+      if (this.analysis.summary) {
+        lines.push('# 요약');
+        lines.push(this.analysis.summary);
+        lines.push('');
+      }
+      for (const sec of this.renderableSections) {
+        lines.push('## ' + (sec.title || sec.key));
+        if (sec.kind === 'list') {
+          for (const it of (sec.items || [])) lines.push('- ' + it);
+        } else if (sec.kind === 'object') {
+          for (const e of (sec.entries || [])) lines.push('- ' + (e.label || e.key) + ': ' + (e.value || ''));
+        } else if (sec.kind === 'text') {
+          lines.push(sec.value || '');
+        }
+        lines.push('');
+      }
+      this.copyToClipboard(lines.join('\n'), '전체 분석');
+    },
+
+    // ===== v2.5.0: K — 한 줄 자동 요약 (AI 안 돌려도 즉시) =====
+    get autoQuickSummary() {
+      const segs = (this.mode === 'recording' ? this.segments : (this.finalResult.segments || []));
+      if (!segs || segs.length === 0) return null;
+      const dur = (this.finalResult.duration_sec || 0);
+      const minutes = dur > 0 ? Math.round(dur / 60) : 0;
+      const first = (segs[0] && segs[0].text || '').slice(0, 40);
+      const last = (segs[segs.length - 1] && segs[segs.length - 1].text || '').slice(0, 40);
+      return {
+        minutes,
+        cards: segs.length,
+        first,
+        last,
+      };
+    },
+
+    // ===== v2.5.1 H1: 폴더명 자동 수정 제안 =====
+    async _maybeFetchFolderSuggestion() {
+      if (!this.meetingId || !this.analysis) return;
+      const site = this.analysis.site_info;
+      if (!site || typeof site !== 'object') return;
+      // 비어있는 site_info 면 스킵
+      const hasAny = Object.values(site).some(v => v && String(v).trim());
+      if (!hasAny) return;
+      try {
+        const r = await fetch('/api/meetings/' + this.meetingId + '/suggest-folder-name', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({site_info: site}),
+        });
+        if (!r.ok) return;
+        const data = await r.json();
+        if (!data.ok) return;
+        // 현재 descriptor 와 동일하면 스킵
+        if ((data.suggested_descriptor || '').trim() === (data.current_descriptor || '').trim()) return;
+        this.folderSuggestion = data;
+        this.folderRenameDescriptor = data.suggested_descriptor;
+        this.folderRenameError = '';
+        this.showFolderSuggestModal = true;
+      } catch(e) { /* ignore — 사용자에게 굳이 알릴 필요 없음 */ }
+    },
+    async applyFolderRename() {
+      if (!this.folderSuggestion) return;
+      const desc = (this.folderRenameDescriptor || '').trim();
+      if (!desc) {
+        this.folderRenameError = '폴더 설명이 비어있습니다.';
+        return;
+      }
+      this.folderRenameApplying = true;
+      this.folderRenameError = '';
+      try {
+        const r = await fetch('/api/meetings/folder-rename/apply', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({
+            client_id: this.folderSuggestion.client_id,
+            new_descriptor: desc,
+          }),
+        });
+        if (!r.ok) {
+          const err = await r.json().catch(() => ({detail: r.statusText}));
+          throw new Error(err.detail || ('HTTP ' + r.status));
+        }
+        const data = await r.json();
+        // 성공 — 모달 닫고 안내 토스트
+        this.showFolderSuggestModal = false;
+        this.copyToast = '✓ 폴더명 변경됨: ' + (data.new_folder_name || desc);
+        setTimeout(() => { this.copyToast = ''; }, 2500);
+        // meetingInfo 의 client_display 도 업데이트 (간단히 새로 로드)
+        await this.loadMeetingInfo();
+      } catch(e) {
+        this.folderRenameError = '폴더 변경 실패: ' + (e.message || String(e));
+      } finally {
+        this.folderRenameApplying = false;
+      }
+    },
+    dismissFolderSuggest() {
+      this.showFolderSuggestModal = false;
+      this.folderSuggestion = null;
+    },
+
+    // ===== v2.5.1 I: 상담 메모 자동 저장 =====
+    async saveMeetingNotes() {
+      if (!this.meetingId) return;
+      this.notesSaveState = 'saving';
+      if (this._notesSavedTimer) {
+        clearTimeout(this._notesSavedTimer);
+        this._notesSavedTimer = null;
+      }
+      try {
+        const r = await fetch('/api/meetings/' + this.meetingId + '/notes', {
+          method: 'PATCH',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({notes: this.meetingNotes || ''}),
+        });
+        if (!r.ok) throw new Error('save failed');
+        this.notesSaveState = 'saved';
+        this._notesSavedTimer = setTimeout(() => {
+          this.notesSaveState = 'idle';
+        }, 1500);
+      } catch(e) {
+        this.notesSaveState = 'idle';
+      }
+    },
+
+    // v2.5.0: 마지막 재전사 모델 선택 기억
+    async _loadLastPostModel() {
+      try {
+        const r = await fetch('/api/settings');
+        if (!r.ok) return;
+        const data = await r.json();
+        const last = data.whisper && data.whisper.last_post_model;
+        if (last && ['tiny','base','small','medium','large-v3'].includes(last)) {
+          this.retranscribeModel = last;
+        }
+      } catch(e) {}
     },
 
     // ---------- Phase 5C: 정확도 재처리 ----------
@@ -1087,6 +3276,9 @@ function livePage() {
         const data = await r.json();
         this.retranscribeResult = data;
         this.retranscribeState = 'done';
+        this.undoResult = null;
+        // 재전사 직후엔 항상 스냅샷 존재
+        this.hasSnapshot = true;
         // 카드 리스트 갱신: DB 에서 새 segments 다시 로드
         try {
           const sr = await fetch('/api/meetings/' + this.meetingId + '/segments');
@@ -1113,27 +3305,188 @@ function livePage() {
       }
     },
 
-    // 분석 결과를 카드 형태로 렌더하기 위한 유도 상태
+    // ---------- Phase 8B+: 재전사 되돌리기 ----------
+    async checkSnapshot() {
+      // finished/view 모드 진입 시 호출. 서버에 되돌릴 수 있는 스냅샷이 있는지 조회.
+      if (!this.meetingId) return;
+      try {
+        const r = await fetch('/api/meetings/' + this.meetingId + '/snapshot');
+        if (!r.ok) return;
+        const data = await r.json();
+        this.hasSnapshot = !!data.available;
+      } catch (e) { /* ignore */ }
+    },
+
+    async undoRetranscribe() {
+      if (!this.meetingId || this.undoState === 'running') return;
+      if (!confirm('재전사 결과를 되돌립니다. 재전사 직전의 카드들로 복원하고, 사용자 편집은 그 시점 상태로 돌아갑니다. 계속할까요?')) return;
+      this.undoState = 'running';
+      try {
+        const r = await fetch('/api/meetings/' + this.meetingId + '/retranscribe/undo', {
+          method: 'POST',
+        });
+        if (!r.ok) {
+          const err = await r.json().catch(() => ({detail: r.statusText}));
+          throw new Error(err.detail || ('HTTP ' + r.status));
+        }
+        const data = await r.json();
+        this.undoResult = data;
+        // 카드 리스트 새로고침
+        try {
+          const sr = await fetch('/api/meetings/' + this.meetingId + '/segments');
+          if (sr.ok) {
+            const seg_data = await sr.json();
+            if (Array.isArray(seg_data.segments)) {
+              this.finalResult.segments = seg_data.segments;
+              this.finalResult.segments_count = seg_data.segments.length;
+            }
+          }
+        } catch (e) { /* ignore */ }
+        // 재전사 결과 카드 숨김 (한번 되돌리면 그 결과는 더 이상 유효하지 않음)
+        this.retranscribeResult = null;
+        this.retranscribeState = 'idle';
+        this.retranscribeError = '';
+        // 스냅샷은 서버에 그대로 남아있어 재실행 가능 — 다만 같은 시점이라 의미는 줄어듦
+        // 사용자가 또 재전사 누르면 새 스냅샷으로 덮어씀
+      } catch (e) {
+        alert('되돌리기 실패: ' + (e.message || e));
+      } finally {
+        this.undoState = 'idle';
+      }
+    },
+
+    // ---------- Phase 8B+: AI 분석 결과 인라인 편집 ----------
+    // path 형식: 'summary' | 'sectionKey[i]' (list) | 'sectionKey.entryKey' (object) | 'sectionKey' (text)
+    startAnalysisEdit(path, currentValue) {
+      if (!this.meetingId) return;
+      this.analysisEditingPath = path;
+      this.analysisEditingValue = currentValue == null ? '' : String(currentValue);
+      this._analysisEditOriginal = this.analysisEditingValue;
+    },
+    cancelAnalysisEdit() {
+      this.analysisEditingPath = null;
+      this.analysisEditingValue = '';
+      this._analysisEditOriginal = '';
+    },
+    async commitAnalysisEdit() {
+      if (this.analysisEditingPath === null) return;
+      const path = this.analysisEditingPath;
+      const newVal = this.analysisEditingValue;
+      // 변경 없음 → 그냥 종료
+      if (newVal === this._analysisEditOriginal) {
+        this.cancelAnalysisEdit();
+        return;
+      }
+      // 로컬 analysis 객체에 path 적용
+      this._applyAnalysisPath(path, newVal);
+      this.cancelAnalysisEdit();
+      await this._saveAnalysis();
+    },
+    _applyAnalysisPath(path, value) {
+      // 'summary' / 'key[i]' / 'key.subkey' 셋 중 하나
+      const listMatch = path.match(/^([^.\[]+)\[(\d+)\]$/);
+      const objMatch = path.match(/^([^.\[]+)\.(.+)$/);
+      if (listMatch) {
+        const k = listMatch[1], i = parseInt(listMatch[2], 10);
+        if (Array.isArray(this.analysis[k])) this.analysis[k][i] = value;
+      } else if (objMatch) {
+        const k = objMatch[1], sub = objMatch[2];
+        if (this.analysis[k] && typeof this.analysis[k] === 'object') {
+          this.analysis[k][sub] = value;
+        }
+      } else {
+        // 단순 문자열 키
+        this.analysis[path] = value;
+      }
+    },
+    addAnalysisListItem(sectionKey) {
+      if (!this.analysis) return;
+      if (!Array.isArray(this.analysis[sectionKey])) this.analysis[sectionKey] = [];
+      const newIdx = this.analysis[sectionKey].length;
+      this.analysis[sectionKey].push('');
+      // 새 항목 자동 편집 모드
+      this.startAnalysisEdit(sectionKey + '[' + newIdx + ']', '');
+    },
+    async removeAnalysisListItem(sectionKey, idx) {
+      if (!this.analysis || !Array.isArray(this.analysis[sectionKey])) return;
+      if (!confirm('이 항목을 삭제할까요?')) return;
+      this.analysis[sectionKey].splice(idx, 1);
+      await this._saveAnalysis();
+    },
+    async _saveAnalysis() {
+      if (!this.meetingId || !this.analysis) return;
+      this.analysisEditState = 'saving';
+      this.analysisEditError = '';
+      if (this._analysisSavedTimer) {
+        clearTimeout(this._analysisSavedTimer);
+        this._analysisSavedTimer = null;
+      }
+      try {
+        const r = await fetch('/api/meetings/' + this.meetingId + '/analysis', {
+          method: 'PATCH',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({data: this.analysis}),
+        });
+        if (!r.ok) {
+          const err = await r.json().catch(() => ({detail: r.statusText}));
+          throw new Error(err.detail || ('HTTP ' + r.status));
+        }
+        this.analysisEditState = 'saved';
+        // 2초 뒤 idle 로
+        this._analysisSavedTimer = setTimeout(() => {
+          this.analysisEditState = 'idle';
+        }, 2000);
+      } catch (e) {
+        this.analysisEditState = 'error';
+        this.analysisEditError = e.message || String(e);
+        alert('AI 분석 저장 실패: ' + this.analysisEditError);
+      }
+    },
+
+    // 분석 결과를 카드 형태로 렌더하기 위한 유도 상태 (메모이제이션 포함)
     get renderableSections() {
       const a = this.analysis;
       if (!a || typeof a !== 'object') return [];
+      // analysis 가 바뀌지 않았으면 캐시 반환 (Alpine getter 는 매 렌더마다 호출됨)
+      const key = JSON.stringify(a);
+      if (this._analysisCacheKey === key && this._renderableSectionsCache !== null) {
+        return this._renderableSectionsCache;
+      }
       const SKIP = new Set(['summary', '_parse_failed', 'raw_response']);
+      // 섹션(카드) 제목 — 한국어
       const KOR_TITLES = {
-        client_info: '👤 고객 정보',
-        client_requests: '🙋 고객 요청사항',
-        concerns: '⚠ 고객 우려사항',
-        action_items: '✅ 액션 아이템',
-        next_meeting_prep: '📅 다음 미팅 준비',
+        client_info:       '👤 고객 정보',
+        site_info:         '🏠 인테리어 장소 정보',
+        client_requests:   '🙋 고객 요청사항',
+        concerns:          '⚠ 고객 우려사항',
+        action_items:      '✅ 다음 할 일',
+        next_meeting_prep: '📅 다음 미팅 준비사항',
         design_directions: '🎨 디자인 방향',
-        agreed_items: '👍 합의 항목',
+        agreed_items:      '👍 확정 항목',
         pending_decisions: '⏳ 미결정 항목',
-        change_requests: '🔁 변경 요청',
-        material_finishes: '🧱 자재·마감',
-        agreed_price: '💰 합의 금액',
-        payment_schedule: '🗓 대금 지급 일정',
-        price_points: '💬 가격 협의 포인트',
-        included_scope: '📦 포함 범위',
-        excluded_scope: '🚫 제외 범위',
+        change_requests:   '🔁 변경·수정 요청',
+        material_finishes: '🧱 자재·마감재',
+        agreed_price:      '💰 합의 금액',
+        payment_schedule:  '🗓 납부 일정',
+        price_points:      '💬 가격 협의 내용',
+        included_scope:    '📦 포함 공사 범위',
+        excluded_scope:    '🚫 제외 항목',
+      };
+      // 객체형 섹션의 서브 필드 한국어 레이블
+      const FIELD_KOR = {
+        // client_info
+        household:       '가족 구성',
+        move_in_timeline:'입주 시기',
+        budget_range:    '예산',
+        preferred_style: '선호 스타일',
+        // site_info
+        address:         '주소',
+        complex_name:    '단지명',
+        building_unit:   '동·호수',
+        size_pyeong:     '평형',
+        size_m2:         '전용면적(㎡)',
+        expansion:       '확장 여부',
+        structure_type:  '구조 타입',
       };
       const sections = [];
       for (const key of Object.keys(a)) {
@@ -1150,6 +3503,7 @@ function livePage() {
             key, title, kind: 'object',
             entries: Object.entries(v).map(([k, val]) => ({
               key: k,
+              label: FIELD_KOR[k] || k,
               value: val === null || val === undefined ? '' : String(val),
             })),
           });
@@ -1160,6 +3514,9 @@ function livePage() {
           });
         }
       }
+      // 캐시 저장
+      this._analysisCacheKey = key;
+      this._renderableSectionsCache = sections;
       return sections;
     },
 
@@ -1182,6 +3539,13 @@ function livePage() {
               this.segments.push(seg);
               this.lastSegId = Math.max(this.lastSegId, seg.id);
             }
+            // v2.5.2: 마지막 새 카드 ID 를 1.6초간 hilight (CSS card-flash class)
+            this.flashSegId = s.new_segments[s.new_segments.length - 1].id;
+            if (this._flashClearTimer) clearTimeout(this._flashClearTimer);
+            this._flashClearTimer = setTimeout(() => {
+              this.flashSegId = null;
+              this._flashClearTimer = null;
+            }, 1700);
             this.scrollToBottom();
           }
         } catch (e) { /* ignore */ }
@@ -1194,8 +3558,16 @@ function livePage() {
     },
 
     scrollToBottom() {
+      // v2.4.4: 사용자가 위로 스크롤해서 옛 카드 보고 있는 중이면 자동 스크롤 안 함.
+      // 끝에서 150px 이내에 있을 때만 새 카드 도착 시 자동으로 따라 내려감.
+      // 사용자가 다시 끝에 가까이 스크롤하면 자동 따라가기 재개.
+      const STICKY_THRESHOLD = 150;
+      const distFromBottom =
+        document.documentElement.scrollHeight - window.scrollY - window.innerHeight;
+      const userIsNearBottom = distFromBottom < STICKY_THRESHOLD;
+      if (!userIsNearBottom) return;  // 사용자 위치 존중 — 강제로 끌어내리지 않음
       this.$nextTick(() => {
-        window.scrollTo({top: document.body.scrollHeight, behavior: 'smooth'});
+        window.scrollTo({top: document.documentElement.scrollHeight, behavior: 'smooth'});
       });
     },
 
@@ -1207,6 +3579,51 @@ function livePage() {
       const s = sec % 60;
       const pad = n => String(n).padStart(2, '0');
       return h > 0 ? h + ':' + pad(m) + ':' + pad(s) : pad(m) + ':' + pad(s);
+    },
+
+    // v2.5.6 W1: 오디오 ±N초 점프 (-5/+5 버튼)
+    seekRelative(deltaSec) {
+      const audio = this.$refs.audioPlayer;
+      if (!audio) return;
+      try {
+        const dur = isFinite(audio.duration) ? audio.duration : Number.MAX_SAFE_INTEGER;
+        const next = Math.min(dur, Math.max(0, (audio.currentTime || 0) + deltaSec));
+        audio.currentTime = next;
+        // 일시정지 상태였어도 재생 시작 — 매장에서 흔히 "다시 들어볼게" 워크플로
+        audio.play().catch(() => {});
+      } catch (e) { /* 무음 실패 */ }
+    },
+    // v2.5.6 W1: 재생 속도 변경 (0.75x ~ 2x)
+    setPlaybackRate(rate) {
+      const audio = this.$refs.audioPlayer;
+      this.playbackRate = rate;
+      if (audio) {
+        try { audio.playbackRate = rate; } catch (e) {}
+      }
+    },
+
+    // v2.4.1: 카드 시간 클릭 시 오디오 플레이어 그 위치로 이동 + 자동 재생
+    seekAudioTo(startMs) {
+      const audio = this.$refs.audioPlayer;
+      if (!audio) return;
+      const target = Math.max(0, (startMs || 0) / 1000);
+      try {
+        // metadata 가 아직 로드 안 됐으면 로드 후 seek
+        if (!isFinite(audio.duration) || audio.readyState < 1) {
+          const onReady = () => {
+            audio.removeEventListener('loadedmetadata', onReady);
+            audio.currentTime = target;
+            audio.play().catch(() => {});
+          };
+          audio.addEventListener('loadedmetadata', onReady);
+          audio.load();
+          return;
+        }
+        audio.currentTime = target;
+        audio.play().catch(() => {});
+      } catch (e) {
+        // 무음 실패 — 플레이어 상태 보존
+      }
     },
     formatDur(ms) {
       return (ms / 1000).toFixed(1) + '초';
@@ -1222,8 +3639,109 @@ function livePage() {
       const i = s.lastIndexOf('/');
       return i >= 0 ? s.slice(i + 1) : s;
     },
+
+    // ⑥ v3.5.0: 재분석 (기존 분석 삭제 후 재실행)
+    async runReanalyze() {
+      if (!this.meetingId || this.analysisState === 'running') return;
+      if (!confirm('기존 AI 분석 결과를 삭제하고 처음부터 다시 분석할까요?')) return;
+      const ok = await this._ensureOllamaReady();
+      if (!ok) return;
+      this.analysisState = 'running';
+      this.analysisError = '';
+      this.analysisElapsed = 0;
+      if (this._analysisTimer) clearInterval(this._analysisTimer);
+      this._analysisTimer = setInterval(() => { this.analysisElapsed += 1; }, 1000);
+      try {
+        const r = await fetch('/api/meetings/' + this.meetingId + '/reanalyze', {method: 'POST'});
+        if (!r.ok) {
+          const err = await r.json().catch(() => ({detail: r.statusText}));
+          throw new Error(err.detail || ('HTTP ' + r.status));
+        }
+        const data = await r.json();
+        this.analysis = data.data || null;
+        this.analysisMeta = {
+          md_path: data.md_path, json_path: data.json_path,
+          model: data.model, total_duration_sec: data.total_duration_sec,
+          eval_count: data.eval_count, parse_ok: data.parse_ok,
+        };
+        this.analysisState = 'done';
+        this._notifyAnalysisDone();
+      } catch(e) {
+        this.analysisError = e.message || String(e);
+        this.analysisState = 'error';
+      } finally {
+        if (this._analysisTimer) { clearInterval(this._analysisTimer); this._analysisTimer = null; }
+      }
+    },
+
+    // ⑦ v3.5.0: 발화 통계
+    showSpeechStats: false,
+    speechStats: null,
+    speechStatsLoading: false,
+
+    async openSpeechStats() {
+      this.showSpeechStats = true;
+      if (this.speechStats) return; // 캐시
+      this.speechStatsLoading = true;
+      try {
+        const r = await fetch('/api/meetings/' + this.meetingId + '/speech-stats');
+        if (r.ok) this.speechStats = await r.json();
+      } catch(e) {} finally { this.speechStatsLoading = false; }
+    },
+
+    // ⑬ v3.5.0: 이메일 초안 (live 화면)
+    showEmailDraftModal: false,
+    emailDraftState: 'idle',  // idle | running | done | error
+    emailDraftResult: null,
+    emailDraftError: '',
+    emailDraftTone: 'formal',
+
+    async openEmailDraftLive() {
+      this.showEmailDraftModal = true;
+      this.emailDraftResult = null;
+      this.emailDraftState = 'idle';
+      await this.generateEmailDraftLive();
+    },
+    async generateEmailDraftLive() {
+      if (!this.meetingId) return;
+      this.emailDraftState = 'running';
+      this.emailDraftError = '';
+      this.emailDraftResult = null;
+      try {
+        const r = await fetch('/api/meetings/' + this.meetingId + '/email-draft', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({tone: this.emailDraftTone}),
+        });
+        if (!r.ok) {
+          const err = await r.json().catch(() => ({}));
+          throw new Error(err.detail || 'HTTP ' + r.status);
+        }
+        this.emailDraftResult = await r.json();
+        this.emailDraftState = 'done';
+      } catch(e) {
+        this.emailDraftError = e.message || String(e);
+        this.emailDraftState = 'error';
+      }
+    },
+    copyEmailDraft() {
+      if (!this.emailDraftResult) return;
+      const text = '[제목] ' + this.emailDraftResult.subject + '\n\n' + this.emailDraftResult.body;
+      navigator.clipboard.writeText(text).then(() => alert('클립보드에 복사됐습니다!'));
+    },
+
+    // ⑭ v3.5.0: QR 코드 (live 화면)
+    showQrLiveModal: false,
+    qrLiveUrl: '',
+
+    openQrLive() {
+      if (!this.meetingId) return;
+      this.qrLiveUrl = '/api/qr/' + this.meetingId;
+      this.showQrLiveModal = true;
+    },
   };
 }
 </script>
+  <script src="/static/remote_status_badge.js"></script>
 </body>
 </html>

@@ -9,7 +9,18 @@ import queue
 from typing import Any, Dict, List, Optional
 
 import numpy as np
-import sounddevice as sd
+# sounddevice 는 import 시점에 PortAudio 를 초기화해 CPU / 오디오 백엔드 리소스를 선점함.
+# 앱 시작 시 불필요한 초기화를 막기 위해 실제로 필요한 시점(첫 녹음·장치 목록 조회)에만 로드.
+_sd = None
+
+
+def _get_sd():
+    """sounddevice 지연 로드 — 첫 호출 시에만 import."""
+    global _sd
+    if _sd is None:
+        import sounddevice as sd  # noqa: PLC0415
+        _sd = sd
+    return _sd
 
 
 # ========================================
@@ -24,6 +35,7 @@ QUEUE_MAX = 500     # ~50초 버퍼 한계
 
 def list_input_devices() -> List[Dict[str, Any]]:
     """마이크 장치 목록."""
+    sd = _get_sd()
     try:
         default_idx = sd.default.device[0] if sd.default.device else None
     except Exception:
@@ -55,7 +67,7 @@ class Recorder:
     ):
         self.device_id = device_id
         self.out_queue = out_queue
-        self._stream: Optional[sd.InputStream] = None
+        self._stream = None
         self._dropped = 0
 
     @property
@@ -69,6 +81,7 @@ class Recorder:
             self._dropped += 1
 
     def start(self) -> None:
+        sd = _get_sd()
         self._stream = sd.InputStream(
             samplerate=SAMPLE_RATE,
             channels=CHANNELS,

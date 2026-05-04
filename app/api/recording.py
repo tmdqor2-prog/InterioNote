@@ -240,3 +240,32 @@ def set_recording_segment_speaker(segment_id: int, req: SpeakerUpdateRequest):
     if not ok:
         raise HTTPException(404, f"segment {segment_id} not found")
     return {"segment_id": segment_id, "speaker": req.speaker}
+
+
+# ----------------------------------------
+# Phase 8A — 녹음 중 카드 텍스트 편집
+# ----------------------------------------
+class SegmentTextRequest(BaseModel):
+    text: str
+
+
+@router.patch("/recording/segments/{segment_id}/text")
+def edit_recording_segment_text(segment_id: int, req: SegmentTextRequest):
+    """
+    녹음 중 in-memory 세그먼트의 text 를 사용자 입력으로 교체.
+    edited_at 마킹 → finalize 시 DB 에 그대로 저장되고 retranscribe 에서 보존됨.
+    """
+    s = live_session.get_active()
+    if s is None:
+        raise HTTPException(404, "진행 중인 녹음이 없습니다.")
+    try:
+        updated = s.update_segment_text(segment_id, req.text)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    if updated is None:
+        raise HTTPException(404, f"segment {segment_id} not found")
+    return {
+        "segment_id": segment_id,
+        "text": updated["text"],
+        "edited_at": updated["edited_at"],
+    }

@@ -91,9 +91,11 @@ hiddenimports += [
 
 # ----------------------------------------
 # 앱 정적 파일 (HTML, 이미지 등)
+# v2.4.2: version.json 도 데이터로 — 빠른 업데이트가 교체 가능하도록
 # ----------------------------------------
 datas += [
     ("app/static", "app/static"),
+    ("app/version.json", "app"),  # → _internal/app/version.json
 ]
 
 
@@ -133,8 +135,12 @@ a = Analysis(
 
 pyz = PYZ(a.pure, a.zipped_data)
 
-# 프로덕션: console=False — 검은 cmd 창 안 뜸. 앱 창만.
-# (디버그 필요할 때 이 값을 True 로 바꾼 뒤 재빌드)
+# Phase 7B-2 v2 (2026-04-27 진단 결과):
+#  - console=False (windowed) 부트로더 runw.exe 가 Windows 11 26200+ 에서
+#    silent 차단됨 (Defender 와 다른 새 보안 휴리스틱). 작업관리자에 프로세스도 안 뜸.
+#  - 해결: console=True 로 빌드 (이건 차단 안 됨) + hide_console='hide-early' 로
+#    실행 즉시 콘솔창 숨김. 사용자 체감은 windowed 모드와 동일.
+# (디버그가 필요할 땐 hide_console 줄을 주석 처리해서 콘솔 보이게 하면 됨)
 exe = EXE(
     pyz,
     a.scripts,
@@ -145,7 +151,8 @@ exe = EXE(
     bootloader_ignore_signals=False,
     strip=False,
     upx=False,                      # 안정성 우선
-    console=False,                  # ✅ 프로덕션
+    console=True,                   # ✅ 차단 회피
+    hide_console='hide-early',      # ✅ 콘솔창 자동 숨김 (PyInstaller 6+)
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,

@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>통합 검색 · InterioNote</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = { darkMode: 'class' };
+    (function() {
+      try {
+        var t = localStorage.getItem('interionote.theme') || 'system';
+        var dark = (t === 'dark') ||
+          (t === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+        if (dark) document.documentElement.classList.add('dark');
+      } catch(e) {}
+    })();
+  </script>
+  <!-- v3.0.0 Phase 2: 인증 (fetch 오버라이드 + 즉시 토큰 확인) -->
+  <script>
+  (function(){
+    var _origFetch = window.fetch.bind(window);
+    window.fetch = async function(resource, opts){
+      opts = opts ? Object.assign({}, opts) : {};
+      if (typeof resource === 'string' && resource.startsWith('/api/')) {
+        var tok = localStorage.getItem('interionote.token');
+        if (tok) opts.headers = Object.assign({'Authorization': 'Bearer ' + tok}, opts.headers || {});
+      }
+      var r = await _origFetch(resource, opts);
+      if (r.status === 401 && window.location.pathname !== '/login') {
+        localStorage.removeItem('interionote.token');
+        localStorage.removeItem('interionote.user');
+        window.location.replace('/login');
+      }
+      return r;
+    };
+    if (window.location.pathname !== '/login') {
+      var tok = localStorage.getItem('interionote.token');
+      if (!tok) { window.location.replace('/login'); return; }
+      try {
+        var p = JSON.parse(atob(tok.split('.')[1].replace(/-/g,'+').replace(/_/g,'/')));
+        if (p.exp && Date.now()/1000 > p.exp) {
+          localStorage.removeItem('interionote.token');
+          localStorage.removeItem('interionote.user');
+          window.location.replace('/login');
+        }
+      } catch(e) {}
+    }
+    window.getAuthUser = function(){
+      try { return JSON.parse(localStorage.getItem('interionote.user') || 'null'); } catch(e){ return null; }
+    };
+    window.logoutUser = function(){
+      localStorage.removeItem('interionote.token');
+      localStorage.removeItem('interionote.user');
+      window.location.replace('/login');
+    };
+  })();
+  </script>
+  <script defer src="https://unpkg.com/alpinejs@3.14.1/dist/cdn.min.js"></script>
+  <style>
+    body { font-family: 'Segoe UI', 'Malgun Gothic', system-ui, sans-serif; }
+    [x-cloak] { display: none !important; }
+    mark { background-color: #fef08a; color: #713f12; padding: 0 2px; border-radius: 2px; }
+    html.dark mark { background-color: rgba(252, 211, 77, 0.4); color: #fde68a; }
+    html.dark .bg-amber-50 { background-color: rgba(120, 53, 15, 0.25) !important; }
+    html.dark .bg-blue-50 { background-color: rgba(30, 58, 138, 0.25) !important; }
+    html.dark .bg-emerald-50 { background-color: rgba(6, 78, 59, 0.30) !important; }
+    html.dark .bg-purple-50 { background-color: rgba(76, 29, 149, 0.25) !important; }
+  </style>
+</head>
+<body class="bg-gray-50 dark:bg-gray-900 dark:text-gray-100 min-h-screen">
+
+<div x-data="searchPage()" x-init="init()" class="min-h-screen">
+  <header class="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 sticky top-0 z-10">
+    <div class="max-w-5xl mx-auto px-6 py-3 flex items-center gap-3">
+      <a href="/" class="text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 shrink-0">← 홈</a>
+      <h1 class="text-lg font-bold flex items-center gap-2 dark:text-gray-100">🔎 통합 검색</h1>
+      <span class="text-xs text-gray-500 dark:text-gray-400 hidden sm:inline">— 모든 상담의 전사·메모·AI 분석</span>
+      <div class="flex-1"></div>
+      <button @click="reindex()" :disabled="reindexing"
+              :title="status && status.needs_reindex ? '인덱스가 최신이 아닙니다 — 재인덱싱 권장' : '검색 인덱스 다시 만들기'"
+              class="text-xs px-2.5 py-1 border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-700 dark:text-gray-200 disabled:opacity-50">
+        <span x-show="!reindexing">🔄 재인덱싱</span>
+        <span x-show="reindexing" x-cloak>⏳ 처리 중...</span>
+        <span x-show="status && status.needs_reindex" x-cloak class="ml-1 text-amber-600 dark:text-amber-400">●</span>
+      </button>
+    </div>
+    <div class="max-w-5xl mx-auto px-6 pb-3">
+      <input type="search" x-model="query" @input.debounce.300ms="runSearch()" autofocus
+             placeholder='예: "거실 색상", "확장 4500", "발코니 단열" 등 — 자연어 키워드 검색'
+             class="w-full text-base px-4 py-2.5 border border-gray-300 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 rounded-lg focus:outline-none focus:border-blue-500"/>
+      <div x-show="status" x-cloak class="text-[11px] text-gray-500 dark:text-gray-400 mt-1.5 flex items-center gap-3 flex-wrap">
+        <span>📚 인덱스: 발화 <strong x-text="status && status.indexed_segments"></strong>개 · 메모 <strong x-text="status && status.indexed_notes"></strong>개 · AI 분석 <strong x-text="status && status.indexed_analyses"></strong>개</span>
+        <span x-show="status && status.needs_reindex" x-cloak class="text-amber-700 dark:text-amber-400 font-semibold">⚠ 새 데이터 — 재인덱싱 권장</span>
+      </div>
+    </div>
+  </header>
+
+  <main class="max-w-5xl mx-auto px-6 py-6 space-y-4">
+    <div x-show="loading" x-cloak class="text-center py-8 text-gray-400 dark:text-gray-500">
+      ⏳ 검색 중...
+    </div>
+
+    <div x-show="!loading && results && query.trim() && results.total === 0" x-cloak class="text-center py-12">
+      <div class="text-5xl mb-2 opacity-40">🔍</div>
+      <div class="text-gray-500 dark:text-gray-400">
+        <strong x-text="'“' + query + '”'"></strong> 에 매치되는 결과가 없습니다.
+      </div>
+      <div class="text-xs text-gray-400 dark:text-gray-500 mt-2">
+        다른 키워드로 시도하거나, 새 데이터를 추가했다면 우측 상단 [🔄 재인덱싱] 클릭.
+      </div>
+    </div>
+
+    <div x-show="!loading && results && results.total > 0" x-cloak>
+      <div class="text-sm text-gray-600 dark:text-gray-300 mb-3">
+        총 <strong x-text="results.total"></strong>개 결과 ·
+        <span class="text-blue-600 dark:text-blue-400">전사 <span x-text="results.transcripts.length"></span></span> ·
+        <span class="text-emerald-600 dark:text-emerald-400">메모 <span x-text="results.notes.length"></span></span> ·
+        <span class="text-purple-600 dark:text-purple-400">AI 분석 <span x-text="results.analyses.length"></span></span>
+      </div>
+
+      <!-- 전사 매치 -->
+      <section x-show="results.transcripts.length > 0" x-cloak class="space-y-2">
+        <h2 class="text-sm font-semibold text-blue-700 dark:text-blue-300 flex items-center gap-1">
+          📄 전사에서 매치 (<span x-text="results.transcripts.length"></span>)
+        </h2>
+        <ul class="bg-white dark:bg-gray-800 border border-blue-200 dark:border-blue-700/50 rounded-xl divide-y divide-gray-100 dark:divide-gray-700">
+          <template x-for="t in results.transcripts" :key="'t-' + t.segment_id">
+            <li class="px-4 py-3 hover:bg-blue-50 dark:hover:bg-blue-900/30 cursor-pointer"
+                @click="openMeeting(t.meeting_id)">
+              <div class="flex items-center gap-2 text-xs flex-wrap mb-1">
+                <span class="font-semibold dark:text-gray-100" x-text="t.client_name + (t.descriptor ? ' (' + t.descriptor + ')' : '')"></span>
+                <span class="px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-800/40 text-blue-800 dark:text-blue-200 font-medium" x-text="t.meeting_type"></span>
+                <span class="text-gray-500 dark:text-gray-400 font-mono" x-text="(t.started_at || '').slice(0, 10)"></span>
+                <span class="text-gray-400 dark:text-gray-500 font-mono ml-auto" x-text="formatMs(t.start_ms)"></span>
+              </div>
+              <div class="text-sm text-gray-800 dark:text-gray-200 leading-relaxed" x-html="t.snippet"></div>
+            </li>
+          </template>
+        </ul>
+      </section>
+
+      <!-- 메모 매치 -->
+      <section x-show="results.notes.length > 0" x-cloak class="space-y-2 mt-4">
+        <h2 class="text-sm font-semibold text-emerald-700 dark:text-emerald-300 flex items-center gap-1">
+          📝 상담 메모에서 매치 (<span x-text="results.notes.length"></span>)
+        </h2>
+        <ul class="bg-white dark:bg-gray-800 border border-emerald-200 dark:border-emerald-700/50 rounded-xl divide-y divide-gray-100 dark:divide-gray-700">
+          <template x-for="n in results.notes" :key="'n-' + n.meeting_id">
+            <li class="px-4 py-3 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 cursor-pointer"
+                @click="openMeeting(n.meeting_id)">
+              <div class="flex items-center gap-2 text-xs flex-wrap mb-1">
+                <span class="font-semibold dark:text-gray-100" x-text="n.client_name + (n.descriptor ? ' (' + n.descriptor + ')' : '')"></span>
+                <span class="px-1.5 py-0.5 rounded bg-emerald-100 dark:bg-emerald-800/40 text-emerald-800 dark:text-emerald-200 font-medium" x-text="n.meeting_type"></span>
+                <span class="text-gray-500 dark:text-gray-400 font-mono" x-text="(n.started_at || '').slice(0, 10)"></span>
+              </div>
+              <div class="text-sm text-gray-800 dark:text-gray-200 leading-relaxed" x-html="n.snippet"></div>
+            </li>
+          </template>
+        </ul>
+      </section>
+
+      <!-- AI 분석 매치 -->
+      <section x-show="results.analyses.length > 0" x-cloak class="space-y-2 mt-4">
+        <h2 class="text-sm font-semibold text-purple-700 dark:text-purple-300 flex items-center gap-1">
+          🤖 AI 분석에서 매치 (<span x-text="results.analyses.length"></span>)
+        </h2>
+        <ul class="bg-white dark:bg-gray-800 border border-purple-200 dark:border-purple-700/50 rounded-xl divide-y divide-gray-100 dark:divide-gray-700">
+          <template x-for="a in results.analyses" :key="'a-' + a.meeting_id">
+            <li class="px-4 py-3 hover:bg-purple-50 dark:hover:bg-purple-900/30 cursor-pointer"
+                @click="openMeeting(a.meeting_id)">
+              <div class="flex items-center gap-2 text-xs flex-wrap mb-1">
+                <span class="font-semibold dark:text-gray-100" x-text="a.client_name + (a.descriptor ? ' (' + a.descriptor + ')' : '')"></span>
+                <span class="px-1.5 py-0.5 rounded bg-purple-100 dark:bg-purple-800/40 text-purple-800 dark:text-purple-200 font-medium" x-text="a.meeting_type"></span>
+                <span class="text-gray-500 dark:text-gray-400 font-mono" x-text="(a.started_at || '').slice(0, 10)"></span>
+              </div>
+              <div class="text-sm text-gray-800 dark:text-gray-200 leading-relaxed" x-html="a.snippet"></div>
+            </li>
+          </template>
+        </ul>
+      </section>
+    </div>
+
+    <!-- 빈 상태 (검색어 없음) -->
+    <div x-show="!loading && (!results || !query.trim())" x-cloak class="text-center py-16">
+      <div class="text-5xl mb-3 opacity-40">🔎</div>
+      <h2 class="text-lg font-semibold dark:text-gray-100 mb-2">통합 검색</h2>
+      <p class="text-sm text-gray-500 dark:text-gray-400 max-w-md mx-auto leading-relaxed">
+        모든 상담의 <strong>전사·메모·AI 분석</strong> 을 한 번에 검색합니다.
+        <br><br>
+        키워드 예시: "거실 색상", "확장 4500", "발코니 단열", "주방 후드"
+      </p>
+    </div>
+  </main>
+</div>
+
+<script>
+function searchPage() {
+  return {
+    query: '',
+    loading: false,
+    results: null,
+    status: null,
+    reindexing: false,
+    _timer: null,
+
+    async init() {
+      await this.loadStatus();
+      // URL ?q=... 자동 검색
+      const params = new URLSearchParams(location.search);
+      const q = params.get('q');
+      if (q) {
+        this.query = q;
+        this.runSearch();
+      }
+    },
+
+    async loadStatus() {
+      try {
+        const r = await fetch('/api/search/status');
+        if (r.ok) this.status = await r.json();
+      } catch (e) { /* ignore */ }
+    },
+
+    async runSearch() {
+      const q = (this.query || '').trim();
+      if (!q) { this.results = null; return; }
+      this.loading = true;
+      try {
+        const r = await fetch('/api/search?q=' + encodeURIComponent(q));
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        this.results = await r.json();
+      } catch (e) {
+        this.results = {total: 0, transcripts: [], notes: [], analyses: []};
+        console.warn('search fail:', e);
+      } finally {
+        this.loading = false;
+      }
+    },
+
+    async reindex() {
+      this.reindexing = true;
+      try {
+        const r = await fetch('/api/search/reindex', {method: 'POST'});
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        await this.loadStatus();
+        if (this.query.trim()) await this.runSearch();
+      } catch (e) {
+        alert('재인덱싱 실패: ' + e);
+      } finally {
+        this.reindexing = false;
+      }
+    },
+
+    openMeeting(meetingId) {
+      window.location.href = '/live?m=' + meetingId;
+    },
+
+    formatMs(ms) {
+      const s = Math.max(0, Math.floor((ms || 0) / 1000));
+      const h = Math.floor(s / 3600);
+      const m = Math.floor((s % 3600) / 60);
+      const ss = s % 60;
+      const pad = (n) => n.toString().padStart(2, '0');
+      return h > 0 ? `${h}:${pad(m)}:${pad(ss)}` : `${pad(m)}:${pad(ss)}`;
+    },
+  };
+}
+</script>
+  <script src="/static/remote_status_badge.js"></script>
+</body>
+</html>

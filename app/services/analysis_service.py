@@ -20,7 +20,7 @@ from typing import Any, Dict, List, Optional
 
 from app import config
 from app.db import db_cursor
-from app.services import analysis_prompts, meeting_finalizer, ollama_client
+from app.services import analysis_prompts, meeting_finalizer, ollama_client, settings_service
 
 log = logging.getLogger("analysis")
 
@@ -115,6 +115,7 @@ def _md_section(title: str, content: Any) -> List[str]:
 SECTION_TITLES: Dict[str, str] = {
     "summary": "📝 요약",
     "client_info": "👤 고객 정보",
+    "site_info": "🏠 인테리어 장소 정보",
     "client_requests": "🙋 고객 요청사항",
     "concerns": "⚠ 고객 우려사항",
     "action_items": "✅ 디자이너 액션 아이템",
@@ -174,9 +175,10 @@ def render_summary_md(
 # ========================================
 # 메인 엔트리
 # ========================================
-def analyze_meeting(meeting_id: int) -> Dict[str, Any]:
+def analyze_meeting(meeting_id: int, username: Optional[str] = None) -> Dict[str, Any]:
     """
     meeting_id 의 녹취록을 qwen 으로 분석.
+    v3.5.2: username 이 주어지면 그 사용자의 원격 Ollama URL 우선 사용 (실패 시 로컬 폴백).
     성공 시: {data, model_used, md_path, json_path, ...}
     실패 시: OllamaError 등 예외 전파.
     """
@@ -220,24 +222,27 @@ def analyze_meeting(meeting_id: int) -> Dict[str, Any]:
         transcript, config.OLLAMA_MAX_TRANSCRIPT_CHARS
     )
 
-    # 3) 프롬프트 빌드
+    # 3) 프롬프트 빌드 (v3.0.0 Phase 3: 추가 분석 항목 주입)
+    extra_items = settings_service.get_analysis_extra_items(meeting["meeting_type"])
     prompt = analysis_prompts.build_prompt(
         meeting_type=meeting["meeting_type"],
         transcript_text=transcript,
         client_name=meeting.get("client_name"),
         client_descriptor=meeting.get("client_descriptor"),
+        extra_items=extra_items if extra_items else None,
     )
 
     # 4) 상태 표시
     _mark_status(meeting_id, "analyzing")
 
-    # 5) Ollama 호출
-    client = ollama_client.get_client()
-    model = config.OLLAMA_MODEL
+    # 5) Ollama 호출 (v3.0.0 Phase 3: settings 에서 모델 결정)
+    # v3.5.2: 사용자별 원격 URL 우선 + 자동 폴백 (generate_with_fallback)
+    model = settings_service.get_ollama_model()
 
-    log.info(f"analyze meeting={meeting_id} model={model} chars={len(transcript)}")
+    log.info(f"analyze meeting={meeting_id} model={model} chars={len(transcript)} user={username}")
     try:
-        resp = client.generate(
+        resp = ollama_client.generate_with_fallback(
+            username,
             model=model,
             prompt=prompt,
             system=analysis_prompts.SYSTEM_PROMPT,
@@ -341,6 +346,94 @@ def analyze_meeting(meeting_id: int) -> Dict[str, Any]:
         "total_duration_sec": (total_duration_ns or 0) / 1_000_000_000.0,
         "source_segments": len(segments),
         "transcript_chars": len(transcript),
+    }
+
+
+def update_analysis_data(meeting_id: int, new_data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Phase 8B+: AI 분석 결과를 사용자가 수기 편집한 후 저장.
+    DB(data_json) 갱신 + 요약.md / 분석결과.json 재생성.
+    파일 재생성이 실패해도 DB 갱신은 성공으로 본다.
+    """
+    if not isinstance(new_data, dict):
+        raise ValueError("data 는 dict 여야 합니다.")
+
+    # meeting + 기존 모델명 조회 (요약.md 재생성에 필요)
+    meeting = meeting_finalizer._load_meeting_and_client(meeting_id)
+    if meeting is None:
+        raise ValueError(f"meeting {meeting_id} not found")
+
+    with db_cursor() as cur:
+        row = cur.execute(
+            "SELECT model_used FROM analyses WHERE meeting_id = ?",
+            (meeting_id,),
+        ).fetchone()
+        if row is None:
+            raise ValueError(f"meeting {meeting_id} 의 분석 결과가 없습니다 (먼저 분석을 실행하세요).")
+        model_used = row["model_used"] or settings_service.get_ollama_model()
+
+    # DB 업데이트
+    with db_cursor() as cur:
+        cur.execute(
+            "UPDATE analyses SET data_json = ?, created_at = CURRENT_TIMESTAMP "
+            "WHERE meeting_id = ?",
+            (json.dumps(new_data, ensure_ascii=False), meeting_id),
+        )
+
+    md_warning = None
+    json_warning = None
+    md_path = None
+    json_path = None
+
+    if meeting.get("meeting_folder"):
+        folder = Path(meeting["meeting_folder"])
+        md_path = folder / "요약.md"
+        json_path = folder / "분석결과.json"
+
+        # 요약.md 재생성
+        try:
+            client_display = meeting.get("client_name") or meeting.get("folder_name") or ""
+            if meeting.get("client_descriptor"):
+                client_display += f" ({meeting['client_descriptor']})"
+            meeting_date = (meeting.get("started_at") or "").replace("T", " ")
+            md_text = render_summary_md(
+                meeting_type=meeting["meeting_type"],
+                client_display=client_display,
+                meeting_date=meeting_date,
+                data=new_data,
+                model_used=model_used,
+            )
+            md_path.write_text(md_text, encoding="utf-8")
+        except Exception as e:
+            md_warning = f"{type(e).__name__}: {e}"
+            log.warning(f"요약.md 재생성 실패: {md_warning}")
+
+        # 분석결과.json 의 data 필드 갱신 (다른 메타는 보존)
+        try:
+            existing_payload = {}
+            if json_path.exists():
+                try:
+                    existing_payload = json.loads(json_path.read_text(encoding="utf-8"))
+                except Exception:
+                    existing_payload = {}
+            existing_payload["data"] = new_data
+            existing_payload["edited_at"] = datetime.now().isoformat(timespec="seconds")
+            json_path.write_text(
+                json.dumps(existing_payload, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+        except Exception as e:
+            json_warning = f"{type(e).__name__}: {e}"
+            log.warning(f"분석결과.json 갱신 실패: {json_warning}")
+
+    return {
+        "meeting_id": meeting_id,
+        "data": new_data,
+        "model_used": model_used,
+        "md_path": str(md_path) if md_path else None,
+        "json_path": str(json_path) if json_path else None,
+        "md_warning": md_warning,
+        "json_warning": json_warning,
     }
 
 

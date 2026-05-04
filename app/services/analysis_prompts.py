@@ -35,6 +35,16 @@ SCHEMAS: Dict[str, Dict[str, Any]] = {
             "budget_range": "예산 범위 (원문 그대로)",
             "preferred_style": "선호 스타일",
         },
+        # v2.5.1 H2: 인테리어 장소 정보 — 폴더명 자동 수정 제안에도 사용됨
+        "site_info": {
+            "address": "지역·구·동 등 주소 정보 (예: '자양동' '서초구 동산로')",
+            "complex_name": "아파트·빌라·단지 이름 (예: '우성아파트' '래미안')",
+            "building_unit": "동·호수 (예: '108동 1502호')",
+            "size_pyeong": "평형 (숫자 + '평' — 예: '32평')",
+            "size_m2": "전용면적 m2 (숫자 + 'm2' 또는 'm²')",
+            "expansion": "확장 여부 (확장형/비확장 등 원문 표현)",
+            "structure_type": "구조 (예: '판상형 32A타입')",
+        },
         "client_requests": ["고객이 명시적으로 요청한 항목들 (리스트)"],
         "concerns": ["고객이 걱정하거나 꺼린 사항들"],
         "action_items": ["디자이너가 다음까지 해야 할 일"],
@@ -75,13 +85,24 @@ def build_prompt(
     *,
     client_name: Optional[str] = None,
     client_descriptor: Optional[str] = None,
+    extra_items: Optional[List[dict]] = None,
 ) -> str:
     """
     analyze 용 프롬프트 본문. Ollama generate() 의 `prompt` 인자로 전달.
+    extra_items: [{"key": str, "label": str, "type": "list"|"text"}, ...]
     """
     if meeting_type not in SCHEMAS:
         raise ValueError(f"unknown meeting_type: {meeting_type}")
-    schema = SCHEMAS[meeting_type]
+    # 기본 스키마 복사 후 추가 항목 병합
+    schema: Dict[str, Any] = dict(SCHEMAS[meeting_type])
+    if extra_items:
+        for item in extra_items:
+            key = str(item.get("key", "")).strip()
+            label = str(item.get("label", "")).strip()
+            type_ = str(item.get("type", "list")).strip()
+            if key and label and key not in schema:
+                # 타입에 따라 예시 값 형태를 다르게 (LLM 이 타입 추론하도록)
+                schema[key] = [f"{label} (리스트 형태로)"] if type_ == "list" else f"{label}"
     schema_text = _render_schema_as_example(schema)
 
     context_lines: List[str] = []
