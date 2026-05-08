@@ -922,7 +922,13 @@
               </div>
               <div class="text-xs text-indigo-700 mt-0.5">
                 경과 <strong x-text="'~' + retranscribeElapsed + '초'"></strong>.
-                녹음 길이 1분당 medium 약 30~90초 (CPU 부담). 페이지를 닫지 마세요.
+                <!-- v3.5.6: 원격 사용 중인지 안내 -->
+                <span x-show="window.__remoteStatus && window.__remoteStatus.state === 'remote_ok'">
+                  🖥 데스크톱 GPU 사용 중 — 1시간 녹음 약 1~3분 예상.
+                </span>
+                <span x-show="!window.__remoteStatus || window.__remoteStatus.state !== 'remote_ok'">
+                  💻 이 PC 처리 중 — 녹음 길이 1분당 약 30~90초 (CPU 부담). 페이지를 닫지 마세요.
+                </span>
               </div>
             </div>
           </div>
@@ -945,6 +951,20 @@
             </span>
           </div>
           <div class="text-xs space-y-0.5 text-emerald-900 dark:text-emerald-200">
+            <!-- v3.5.6: 어디서 처리됐는지 표시 -->
+            <div class="font-semibold flex items-center gap-2">
+              <span x-show="retranscribeResult.used_endpoint === 'remote'"
+                    class="bg-emerald-200 dark:bg-emerald-800 text-emerald-900 dark:text-emerald-100 px-2 py-0.5 rounded">
+                🖥 데스크톱 GPU 사용
+              </span>
+              <span x-show="retranscribeResult.used_endpoint === 'local'"
+                    class="bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-200 px-2 py-0.5 rounded">
+                💻 이 PC 처리
+              </span>
+              <span x-show="retranscribeResult.remote_error"
+                    class="text-amber-700 dark:text-amber-300 text-[11px]"
+                    x-text="'(원격 실패 → 폴백: ' + retranscribeResult.remote_error + ')'"></span>
+            </div>
             <div>모델: <code x-text="retranscribeResult.model"></code></div>
             <div>
               세그먼트:

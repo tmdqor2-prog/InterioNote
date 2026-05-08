@@ -86,13 +86,8 @@ def retranscribe_meeting(
             "다음 녹음부터 자동 보존됩니다."
         )
 
-    # 모델 로드 (필요 시 다운로드)
     print(f"[retranscribe] meeting={meeting_id} model={model_size} wav={wav_path}", flush=True)
     log.info(f"retranscribe meeting={meeting_id} model={model_size}")
-    print(f"[retranscribe] step 1/4: loading model {model_size}...", flush=True)
-    t_model_start = time.time()
-    model = whisper_service.get_post_whisper(model_size)
-    print(f"[retranscribe] step 1/4 done in {time.time() - t_model_start:.1f}s", flush=True)
 
     # 기존 라벨 확보 (이관용) + 되돌리기 스냅샷 저장
     old_segments = meeting_finalizer.load_segments_from_db(meeting_id)
@@ -100,75 +95,107 @@ def retranscribe_meeting(
         snapshot_count = meeting_finalizer.save_segments_snapshot(meeting_id, label="pre_retranscribe")
         print(f"[retranscribe] undo snapshot saved: {snapshot_count} segments", flush=True)
     except Exception as e:
-        # 스냅샷 실패해도 재전사 자체는 진행 (단, 되돌리기 불가)
         log.warning(f"snapshot save failed: {type(e).__name__}: {e}")
 
-    # 도메인 힌트 + 파라미터
-    vocab = settings_service.get_interior_vocab_for_prompt()
-    beam = settings_service.get_whisper_beam_size()
-    vad_threshold = settings_service.get_vad_threshold()
-
-    # 전체 WAV 를 한 번에 전사 — faster-whisper 의 내장 VAD 사용
-    # Phase 8A 수정: word_timestamps=True 로 단어별 시간 정보 받음 → 옛 카드 시간 범위에 재분배
-    print(f"[retranscribe] step 2/4: starting transcribe (beam={beam}, vad_threshold={vad_threshold}, word_ts=True)...", flush=True)
-    t_tr_start = time.time()
-    seg_iter, info = model.transcribe(
-        str(wav_path),
-        language="ko",
-        beam_size=beam,
-        best_of=beam,
-        vad_filter=True,
-        vad_parameters=dict(
-            min_silence_duration_ms=500,
-            threshold=vad_threshold,
-        ),
-        initial_prompt=vocab or None,
-        condition_on_previous_text=False,
-        temperature=[0.0, 0.2, 0.4],
-        no_speech_threshold=0.6,
-        compression_ratio_threshold=2.4,
-        log_prob_threshold=-1.0,
-        word_timestamps=True,
-    )
-    print(f"[retranscribe] step 2/4: transcribe handle obtained in {time.time() - t_tr_start:.1f}s, iterating segments...", flush=True)
-
-    # medium 의 raw segments + words 모두 수집
-    raw_segments: List[Dict[str, Any]] = []  # whisper 가 만든 sentence-level 묶음
-    all_words: List[Dict[str, Any]] = []     # 단어별 timestamp (재분배용)
+    # ─── v3.5.6: 원격 데스크톱(Auth Server) 우선 시도 + 실패 시 로컬 폴백 ───
+    raw_segments: List[Dict[str, Any]] = []
+    all_words: List[Dict[str, Any]] = []
     hallucinations_filtered = 0
-    seg_count = 0
-    for seg in seg_iter:
-        seg_count += 1
-        if seg_count <= 20 or seg_count % 10 == 0:
-            print(f"[retranscribe]   segment {seg_count}: [{seg.start:.1f}-{seg.end:.1f}] {(seg.text or '')[:40]}", flush=True)
-        text = (seg.text or "").strip()
-        if not text:
-            continue
-        if is_repetition_hallucination(text):
-            hallucinations_filtered += 1
-            log.info(f"hallucination filtered: {text[:60]}")
-            continue
-        conf = None
-        if getattr(seg, "avg_logprob", None) is not None:
-            conf = float(seg.avg_logprob)
-        raw_segments.append({
-            "start_ms": int(seg.start * 1000),
-            "end_ms": int(seg.end * 1000),
-            "text": text,
-            "confidence": conf,
-            "speaker": None,
-        })
-        # 단어별 timestamp 수집
-        words = getattr(seg, "words", None) or []
-        for w in words:
-            wt = (getattr(w, "word", "") or "").strip()
-            if not wt:
+    used_endpoint = "local"
+    remote_error: Optional[str] = None
+
+    try:
+        from app.services import auth_server_client
+        if auth_server_client.is_configured():
+            try:
+                print(f"[retranscribe] step 1/4: 원격 데스크톱 GPU 사용 시도 (WAV 업로드 중)...", flush=True)
+                t_remote = time.time()
+                remote_result = auth_server_client.remote_transcribe_wav(
+                    str(wav_path),
+                    model_size=model_size,
+                    language="ko",
+                )
+                print(f"[retranscribe] step 1/4 원격 완료 in {time.time() - t_remote:.1f}s "
+                      f"(업로드 {remote_result.get('uploaded_bytes', 0)/1024/1024:.1f}MB)", flush=True)
+                used_endpoint = "remote"
+                hallucinations_filtered = remote_result.get("filtered_count", 0)
+                # remote 형식 → 로컬과 동일하게 변환
+                for s in remote_result.get("segments", []):
+                    raw_segments.append({
+                        "start_ms": int(s["start_ms"]),
+                        "end_ms": int(s["end_ms"]),
+                        "text": s["text"],
+                        "confidence": s.get("confidence"),
+                        "speaker": None,
+                    })
+                    for w in s.get("words", []):
+                        all_words.append({
+                            "start_ms": int(w["start_ms"]),
+                            "end_ms": int(w["end_ms"]),
+                            "text": w["text"],
+                        })
+            except auth_server_client.AuthServerError as e:
+                remote_error = str(e)
+                log.warning(f"원격 재전사 실패 → 로컬 폴백: {e}")
+                print(f"[retranscribe] 원격 실패 ({e}) → 로컬 GPU/CPU 로 폴백", flush=True)
+    except Exception as e:
+        log.warning(f"auth_server_client import 실패: {e}")
+
+    if used_endpoint == "local":
+        # 로컬 처리 (기존 흐름)
+        print(f"[retranscribe] step 1/4: 로컬 모델 {model_size} 로딩...", flush=True)
+        t_model_start = time.time()
+        model = whisper_service.get_post_whisper(model_size)
+        print(f"[retranscribe] step 1/4 done in {time.time() - t_model_start:.1f}s", flush=True)
+
+        vocab = settings_service.get_interior_vocab_for_prompt()
+        beam = settings_service.get_whisper_beam_size()
+        vad_threshold = settings_service.get_vad_threshold()
+
+        print(f"[retranscribe] step 2/4: 로컬 전사 시작 (beam={beam})...", flush=True)
+        t_tr_start = time.time()
+        seg_iter, info = model.transcribe(
+            str(wav_path),
+            language="ko",
+            beam_size=beam, best_of=beam,
+            vad_filter=True,
+            vad_parameters=dict(min_silence_duration_ms=500, threshold=vad_threshold),
+            initial_prompt=vocab or None,
+            condition_on_previous_text=False,
+            temperature=[0.0, 0.2, 0.4],
+            no_speech_threshold=0.6,
+            compression_ratio_threshold=2.4,
+            log_prob_threshold=-1.0,
+            word_timestamps=True,
+        )
+        print(f"[retranscribe] step 2/4: handle in {time.time() - t_tr_start:.1f}s, iterating...", flush=True)
+
+        seg_count = 0
+        for seg in seg_iter:
+            seg_count += 1
+            if seg_count <= 20 or seg_count % 10 == 0:
+                print(f"[retranscribe]   segment {seg_count}: [{seg.start:.1f}-{seg.end:.1f}] {(seg.text or '')[:40]}", flush=True)
+            text = (seg.text or "").strip()
+            if not text:
                 continue
-            all_words.append({
-                "start_ms": int((w.start or 0) * 1000),
-                "end_ms": int((w.end or 0) * 1000),
-                "text": wt,
+            if is_repetition_hallucination(text):
+                hallucinations_filtered += 1
+                continue
+            conf = float(seg.avg_logprob) if getattr(seg, "avg_logprob", None) is not None else None
+            raw_segments.append({
+                "start_ms": int(seg.start * 1000),
+                "end_ms": int(seg.end * 1000),
+                "text": text, "confidence": conf, "speaker": None,
             })
+            for w in (getattr(seg, "words", None) or []):
+                wt = (getattr(w, "word", "") or "").strip()
+                if not wt:
+                    continue
+                all_words.append({
+                    "start_ms": int((w.start or 0) * 1000),
+                    "end_ms": int((w.end or 0) * 1000),
+                    "text": wt,
+                })
 
     # ----- Phase 8A: 옛 카드 구조 보존 + 사용자 편집 보호 -----
     # 옛 카드들의 시간 범위는 silero-vad 기반으로 발화 단위로 잘 쪼개져 있음.
@@ -318,11 +345,14 @@ def retranscribe_meeting(
         "raw_medium_segments_count": len(raw_segments),
         "edited_preserved_count": edited_preserved,
         "refilled_count": refilled_count,
-        "kept_old_count": kept_old_count,                   # medium 이 못 잡아 옛 텍스트 보존
+        "kept_old_count": kept_old_count,
         "dropped_hallucination_count": dropped_hallucination,
         "final_segments_count": len(final_segments),
         "labels_transferred": labels_transferred,
         "hallucinations_filtered": hallucinations_filtered,
         "elapsed_sec": round(elapsed, 2),
         "md_warning": md_warning,
+        # v3.5.6: 어디서 처리됐는지 + 원격 실패 사유 (UI 표시용)
+        "used_endpoint": used_endpoint,  # 'remote' | 'local'
+        "remote_error": remote_error,
     }

@@ -207,3 +207,66 @@ def remote_delete_user(user_id: int) -> dict:
         return r.json()
     except httpx.HTTPError as e:
         raise AuthServerError(f"삭제 실패: {type(e).__name__}: {e}")
+
+
+# ─── v3.5.6: WAV 원격 재전사 ──────────────────────────────────────────────────
+
+def remote_transcribe_wav(
+    wav_path: str,
+    model_size: str = "medium",
+    language: str = "ko",
+    timeout_sec: float = 1800.0,  # 최대 30분 (3시간 녹음 + 업로드 + 처리 여유)
+) -> dict:
+    """
+    v3.5.6 — WAV 파일을 데스크톱(Auth Server) 에 업로드 후 GPU 재전사.
+
+    Args:
+        wav_path: 보낼 WAV 파일 경로
+        model_size: tiny / base / small / medium / large-v3
+        language: 'ko' 등
+        timeout_sec: 전체 호출 timeout (큰 WAV 는 업로드만 1~2분)
+
+    Returns:
+        {ok, segments, info, filtered_count, model_used, uploaded_bytes}
+    """
+    base = _base_url()
+    if not base:
+        raise AuthServerError("Auth Server URL 이 설정되지 않았습니다.")
+    api_key = settings_service.get_auth_server_client_api_key()
+    if not api_key:
+        raise AuthServerError("Auth Server API 키가 설정되지 않았습니다.")
+
+    from pathlib import Path
+    p = Path(wav_path)
+    if not p.exists():
+        raise AuthServerError(f"WAV 파일이 존재하지 않습니다: {wav_path}")
+    size_mb = p.stat().st_size / (1024 * 1024)
+    log.info(f"remote_transcribe: {p.name} ({size_mb:.1f}MB) → {base}, model={model_size}")
+
+    headers = {"X-Auth-Server-Key": api_key}
+    files = {"audio": (p.name, open(p, "rb"), "audio/wav")}
+    data = {"model_size": model_size, "language": language}
+    try:
+        with httpx.Client(timeout=timeout_sec) as client:
+            r = client.post(
+                f"{base}/api/auth-server/transcribe",
+                headers=headers, files=files, data=data,
+            )
+        if r.status_code == 401:
+            raise AuthServerError("Auth Server API 키가 올바르지 않습니다.")
+        if r.status_code == 503:
+            raise AuthServerError("데스크톱 Auth Server 모드가 꺼져 있습니다.")
+        r.raise_for_status()
+        return r.json()
+    except httpx.TimeoutException:
+        raise AuthServerError(
+            f"전사 시간 초과 ({timeout_sec}초). "
+            "녹음이 너무 길거나 데스크톱이 응답하지 않습니다."
+        )
+    except httpx.HTTPError as e:
+        raise AuthServerError(f"원격 전사 실패: {type(e).__name__}: {e}")
+    finally:
+        try:
+            files["audio"][1].close()
+        except Exception:
+            pass

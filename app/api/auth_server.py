@@ -23,9 +23,12 @@ v3.5.3 — Auth Server 엔드포인트 (중앙 계정 관리).
 """
 from __future__ import annotations
 
+import os
+import tempfile
+from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, Header, HTTPException, Request
+from fastapi import APIRouter, File, Form, Header, HTTPException, Request, UploadFile
 from pydantic import BaseModel, Field
 
 from app.db import db_cursor, get_setting
@@ -166,3 +169,64 @@ def server_delete_user(user_id: int, x_auth_server_key: Optional[str] = Header(N
     _require_api_key(x_auth_server_key)
     auth_service.delete_user(user_id)
     return {"ok": True}
+
+
+# ─── v3.5.6: Whisper 재전사 원격 위임 ─────────────────────────────────────────
+# 노트북이 자기 WAV 파일을 데스크톱(GPU) 에 업로드 → 데스크톱이 large-v3 로 전사
+# → segments + words 반환. 노트북은 그 결과로 DB 갱신만 수행.
+# 효과: 노트북 CPU 30분+ → 데스크톱 GPU 5~10분.
+
+@router.post("/transcribe")
+async def server_transcribe(
+    audio: UploadFile = File(...),
+    model_size: str = Form("medium"),
+    language: str = Form("ko"),
+    x_auth_server_key: Optional[str] = Header(None),
+):
+    """v3.5.6 — 클라이언트(노트북) 가 보낸 WAV 파일을 GPU 로 재전사.
+    multipart/form-data 로 받아서 임시 파일에 저장한 뒤 whisper 처리.
+    """
+    _require_api_key(x_auth_server_key)
+    # 모델 크기 검증
+    if model_size not in ("tiny", "base", "small", "medium", "large-v3"):
+        raise HTTPException(400, f"잘못된 model_size: {model_size}")
+
+    # 임시 파일에 저장 (chunk 단위로 — 큰 WAV 도 메모리 넘치지 않게)
+    suffix = Path(audio.filename or "audio.wav").suffix or ".wav"
+    fd, tmp_path = tempfile.mkstemp(prefix="interio_remote_", suffix=suffix)
+    os.close(fd)
+    written = 0
+    try:
+        with open(tmp_path, "wb") as f:
+            while True:
+                chunk = await audio.read(1024 * 1024)  # 1MB chunks
+                if not chunk:
+                    break
+                f.write(chunk)
+                written += len(chunk)
+        if written == 0:
+            raise HTTPException(400, "빈 파일이 업로드됐습니다.")
+
+        # Whisper 호출 (file 기반)
+        from app.services import whisper_service
+        try:
+            result = whisper_service.transcribe_wav_file(
+                tmp_path,
+                model_size=model_size,
+                language=language,
+                word_timestamps=True,
+            )
+        except Exception as e:
+            raise HTTPException(500, f"전사 실패: {type(e).__name__}: {str(e)[:300]}")
+
+        return {
+            "ok": True,
+            "model_used": model_size,
+            "uploaded_bytes": written,
+            **result,
+        }
+    finally:
+        try:
+            os.unlink(tmp_path)
+        except Exception:
+            pass

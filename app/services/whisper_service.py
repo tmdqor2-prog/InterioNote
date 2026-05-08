@@ -478,6 +478,88 @@ def transcribe_segment(
     }
 
 
+def transcribe_wav_file(
+    wav_path: str,
+    *,
+    model_size: str = "medium",
+    language: str = "ko",
+    word_timestamps: bool = True,
+) -> Dict[str, Any]:
+    """
+    v3.5.6 — file 기반 재전사. retranscribe_service 와 원격 transcribe 엔드포인트 둘 다 사용.
+
+    반환:
+        {
+          "segments": [{start_ms, end_ms, text, confidence, words: [{start_ms, end_ms, text}]}],
+          "info": {"language", "duration_sec"},
+          "filtered_count": int,
+        }
+    """
+    model = get_post_whisper(model_size)
+    beam = settings_service.get_whisper_beam_size()
+    vocab = settings_service.get_interior_vocab_for_prompt()
+    vad_threshold = settings_service.get_vad_threshold()
+
+    seg_iter, info = model.transcribe(
+        wav_path,
+        language=language,
+        beam_size=beam,
+        best_of=beam,
+        vad_filter=True,
+        vad_parameters=dict(min_silence_duration_ms=500, threshold=vad_threshold),
+        initial_prompt=vocab or None,
+        condition_on_previous_text=False,
+        temperature=[0.0, 0.2, 0.4],
+        no_speech_threshold=0.6,
+        compression_ratio_threshold=2.4,
+        log_prob_threshold=-1.0,
+        word_timestamps=word_timestamps,
+    )
+
+    segments = []
+    filtered = 0
+    for seg in seg_iter:
+        text = (seg.text or "").strip()
+        if not text:
+            continue
+        if _is_repetition_hallucination(text):
+            filtered += 1
+            continue
+        conf = float(seg.avg_logprob) if getattr(seg, "avg_logprob", None) is not None else None
+        words_out = []
+        if word_timestamps:
+            for w in (getattr(seg, "words", None) or []):
+                wt = (getattr(w, "word", "") or "").strip()
+                if not wt:
+                    continue
+                words_out.append({
+                    "start_ms": int((w.start or 0) * 1000),
+                    "end_ms": int((w.end or 0) * 1000),
+                    "text": wt,
+                })
+        segments.append({
+            "start_ms": int((seg.start or 0) * 1000),
+            "end_ms": int((seg.end or 0) * 1000),
+            "text": text,
+            "confidence": conf,
+            "words": words_out,
+        })
+
+    return {
+        "segments": segments,
+        "info": {
+            "language": info.language,
+            "duration_sec": float(info.duration or 0),
+        },
+        "filtered_count": filtered,
+    }
+
+
+# 내부에서 사용한 환각 필터 — 외부 모듈도 쓸 수 있게 export
+def is_repetition_hallucination(text: str) -> bool:
+    return _is_repetition_hallucination(text)
+
+
 def _merge_short_segments(raw_segs, min_chars: int = 6, min_dur_sec: float = 1.0):
     """v3.5.4: faster-whisper 가 너무 잘게 자른 segments 를 병합.
     가독성 좋은 카드 단위 (마침표 ~ 5초 정도) 로 합침.
