@@ -240,20 +240,36 @@ def analyze_meeting(meeting_id: int, username: Optional[str] = None) -> Dict[str
     model = settings_service.get_ollama_model()
 
     log.info(f"analyze meeting={meeting_id} model={model} chars={len(transcript)} user={username}")
-    try:
-        resp = ollama_client.generate_with_fallback(
+
+    def _do_call(opts):
+        return ollama_client.generate_with_fallback(
             username,
             model=model,
             prompt=prompt,
             system=analysis_prompts.SYSTEM_PROMPT,
             format_json=True,
-            options={
-                "temperature": 0.2,
-                "top_p": 0.9,
+            options=opts,
+        )
+
+    try:
+        # 1차 시도: 안정적 옵션
+        resp = _do_call({
+            "temperature": 0.2,
+            "top_p": 0.9,
+            "num_ctx": 8192,
+            "num_predict": 2048,
+        })
+        # v3.5.4: 응답이 비정상적으로 중국어로 나오면 1회 재시도 (다른 시드 + 더 보수적인 옵션)
+        raw_text = resp.get("response") or ""
+        if analysis_prompts.has_significant_chinese(raw_text):
+            log.warning(f"analyze meeting={meeting_id}: 중국어 응답 감지 — 재시도")
+            resp = _do_call({
+                "temperature": 0.0,    # deterministic
+                "top_p": 0.5,
                 "num_ctx": 8192,
                 "num_predict": 2048,
-            },
-        )
+                "seed": 42,
+            })
     except Exception as e:
         _mark_status(meeting_id, "recorded")  # 롤백
         raise
@@ -261,6 +277,15 @@ def analyze_meeting(meeting_id: int, username: Optional[str] = None) -> Dict[str
     raw_text = resp.get("response") or ""
     eval_count = resp.get("eval_count")
     total_duration_ns = resp.get("total_duration")
+    # v3.5.4: 재시도해도 중국어면 사용자에게 모델 변경 안내
+    chinese_warning = ""
+    if analysis_prompts.has_significant_chinese(raw_text):
+        chinese_warning = (
+            "⚠ AI 응답이 한국어가 아닌 다른 언어 (중국어 등) 로 나왔습니다. "
+            "설정 → AI 분석 → 모델을 'llama3.2:3b' 또는 다른 모델로 변경 후 다시 시도해 주세요. "
+            "현재 모델: " + str(model)
+        )
+        log.warning(f"analyze meeting={meeting_id}: {chinese_warning}")
 
     # 6) 파싱
     data = _extract_json(raw_text)
@@ -272,6 +297,12 @@ def analyze_meeting(meeting_id: int, username: Optional[str] = None) -> Dict[str
             "raw_response": raw_text[:20000],  # 용량 보호
             "summary": "(AI 응답이 JSON 형식이 아니었습니다. 아래 원문을 확인하세요.)",
         }
+
+    # v3.5.4: 중국어 경고가 있으면 summary 맨 앞에 prepend (사용자가 즉시 인지)
+    if chinese_warning:
+        data["_language_warning"] = chinese_warning
+        existing = data.get("summary") or ""
+        data["summary"] = chinese_warning + "\n\n" + existing
 
     # 7) 파일 저장
     json_path = meeting_folder / "분석결과.json"

@@ -509,6 +509,10 @@
                 <button @click="setSpeaker(s, null)"
                   x-show="s.speaker !== null && s.speaker !== undefined"
                   class="text-xs text-gray-400 hover:text-gray-700 dark:text-gray-200 px-1">✕</button>
+                <!-- v3.5.4: 카드 분할 버튼 (한 카드 안에 두 사람 발화 섞였을 때) -->
+                <button @click="openSplitModal(s)"
+                  title="카드 분할 — 두 사람 대화가 섞인 경우"
+                  class="text-xs text-purple-500 hover:text-purple-700 dark:text-purple-400 px-1 border border-transparent hover:border-purple-300 dark:hover:border-purple-700 rounded transition">✂</button>
               </div>
             </li>
           </template>
@@ -1375,6 +1379,10 @@
                 <button @click="setSpeaker(s, null)"
                   x-show="s.speaker !== null && s.speaker !== undefined"
                   class="text-[11px] text-gray-400 hover:text-gray-700 dark:text-gray-200 px-1">✕</button>
+                <!-- v3.5.4: 카드 분할 버튼 -->
+                <button @click="openSplitModal(s)"
+                  title="카드 분할 — 두 사람 대화가 섞인 경우"
+                  class="text-[11px] text-purple-500 hover:text-purple-700 dark:text-purple-400 px-1 border border-transparent hover:border-purple-300 dark:hover:border-purple-700 rounded transition">✂</button>
               </div>
             </li>
           </template>
@@ -1392,6 +1400,63 @@
     </section>
 
   </main>
+
+  <!-- v3.5.4: 카드 분할 모달 -->
+  <div x-show="splitModal.show" x-cloak
+       @click.self="closeSplitModal()"
+       class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+    <div class="bg-white dark:bg-gray-800 rounded-xl shadow-2xl max-w-2xl w-full p-5 dark:text-gray-100">
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="font-bold text-lg flex items-center gap-2">
+          <span>✂</span> 카드 분할
+        </h2>
+        <button @click="closeSplitModal()" class="text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 text-xl">×</button>
+      </div>
+      <p class="text-sm text-gray-600 dark:text-gray-400 mb-3">
+        한 카드 안에 두 사람 발화가 섞여 있을 때 사용합니다. <strong>자르고 싶은 위치를 텍스트 안에서 클릭</strong>하면
+        그 자리에 ┃ 표시가 나타나고, "여기서 분할" 누르면 두 카드로 나뉘어 각자 화자 라벨을 따로 줄 수 있습니다.
+      </p>
+      <!-- 카드 텍스트 — 클릭으로 분할 위치 지정 -->
+      <div class="bg-gray-50 dark:bg-gray-900 border-2 border-purple-300 dark:border-purple-700 rounded-lg p-3 text-sm leading-relaxed font-mono cursor-text mb-3 select-none"
+           @click="onSplitTextClick($event)">
+        <template x-for="(ch, i) in splitModal.text.split('')" :key="i">
+          <span :class="i === splitModal.at ? 'border-l-4 border-purple-600 -ml-1 pl-1' : ''"
+                x-text="ch"></span>
+        </template>
+      </div>
+      <div class="flex items-center justify-between mb-3">
+        <div class="text-xs text-gray-500 dark:text-gray-400">
+          분할 위치: <span class="font-mono" x-text="splitModal.at"></span> / 전체 <span class="font-mono" x-text="splitModal.text.length"></span> 글자
+        </div>
+        <div class="flex gap-2">
+          <button @click="splitModal.at = Math.max(1, splitModal.at - 1)"
+                  class="text-xs px-2 py-1 bg-gray-100 dark:bg-gray-700 rounded hover:bg-gray-200 dark:hover:bg-gray-600">← 한 글자</button>
+          <button @click="splitModal.at = Math.min(splitModal.text.length - 1, splitModal.at + 1)"
+                  class="text-xs px-2 py-1 bg-gray-100 dark:bg-gray-700 rounded hover:bg-gray-200 dark:hover:bg-gray-600">한 글자 →</button>
+        </div>
+      </div>
+      <!-- 미리보기: 분할 시 두 카드 -->
+      <div x-show="splitModal.at > 0 && splitModal.at < splitModal.text.length" x-cloak class="grid grid-cols-2 gap-3 mb-4">
+        <div class="bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-700 rounded p-2 text-xs">
+          <div class="font-medium text-blue-700 dark:text-blue-300 mb-1">왼쪽 카드 (원본)</div>
+          <div class="font-mono" x-text="splitModal.text.substring(0, splitModal.at).trim()"></div>
+        </div>
+        <div class="bg-emerald-50 dark:bg-emerald-900/30 border border-emerald-200 dark:border-emerald-700 rounded p-2 text-xs">
+          <div class="font-medium text-emerald-700 dark:text-emerald-300 mb-1">오른쪽 카드 (새로 생김)</div>
+          <div class="font-mono" x-text="splitModal.text.substring(splitModal.at).trim()"></div>
+        </div>
+      </div>
+      <div x-show="splitModal.error" x-cloak class="text-sm text-amber-700 dark:text-amber-300 mb-3" x-text="splitModal.error"></div>
+      <div class="flex justify-end gap-2">
+        <button @click="closeSplitModal()" class="px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-700">취소</button>
+        <button @click="confirmSplit()" :disabled="splitModal.busy"
+                class="px-4 py-1.5 text-sm bg-purple-600 hover:bg-purple-700 text-white rounded font-medium disabled:opacity-50">
+          <span x-show="!splitModal.busy">✂ 여기서 분할</span>
+          <span x-show="splitModal.busy" x-cloak>처리 중...</span>
+        </button>
+      </div>
+    </div>
+  </div>
 
   <!-- v2.5.0 D: 단축키 도움말 모달 -->
   <div x-show="showShortcutHelp" x-cloak
@@ -2010,6 +2075,16 @@ function livePage() {
     // renderableSections 메모이제이션 (analysis 객체가 바뀔 때만 재계산)
     _renderableSectionsCache: null,
     _analysisCacheKey: '',
+
+    // v3.5.4: 카드 분할 모달 상태
+    splitModal: {
+      show: false,
+      seg: null,        // 분할 대상 segment 객체
+      text: '',         // 카드 원본 텍스트
+      at: 0,            // 분할 위치 (글자 인덱스)
+      error: '',
+      busy: false,
+    },
 
     // Phase 8B+: 분석 결과 인라인 편집
     // path 형식 — 'summary' / 'action_items[2]' / 'client_info.budget' 등
@@ -2633,6 +2708,104 @@ function livePage() {
         // 롤백
         seg.speaker = prev;
         alert('라벨 저장 실패: ' + (e.message || e));
+      }
+    },
+
+    // ----- v3.5.4: 카드 분할 (한 카드에 두 사람 발화 섞였을 때) -----
+    openSplitModal(seg) {
+      if (!seg || !seg.text) return;
+      // 단독 테스트(녹음 안 한, meetingId 없는) 모드에서는 차단
+      if (this.mode !== 'recording' && !this.meetingId) {
+        alert('이 모드에서는 카드 분할 불가능합니다.');
+        return;
+      }
+      this.splitModal.show = true;
+      this.splitModal.seg = seg;
+      this.splitModal.text = seg.text;
+      // 기본 분할 위치: 중간 (첫 마침표·물음표·느낌표 바로 뒤)
+      const punc = seg.text.search(/[.!?。，,]/);
+      this.splitModal.at = (punc > 0 && punc < seg.text.length - 1)
+        ? punc + 1
+        : Math.floor(seg.text.length / 2);
+      this.splitModal.error = '';
+      this.splitModal.busy = false;
+    },
+    closeSplitModal() {
+      this.splitModal.show = false;
+      this.splitModal.seg = null;
+      this.splitModal.text = '';
+      this.splitModal.at = 0;
+      this.splitModal.error = '';
+    },
+    onSplitTextClick(ev) {
+      // 클릭한 글자(span) 의 인덱스로 분할 위치 이동
+      const target = ev.target;
+      if (!target || target.tagName !== 'SPAN') return;
+      const parent = target.parentElement;
+      if (!parent) return;
+      const idx = Array.from(parent.children).indexOf(target);
+      if (idx >= 0) {
+        this.splitModal.at = Math.max(1, Math.min(idx, this.splitModal.text.length - 1));
+        this.splitModal.error = '';
+      }
+    },
+    async confirmSplit() {
+      const m = this.splitModal;
+      if (!m.seg) return;
+      if (m.at < 1 || m.at >= m.text.length) {
+        m.error = '분할 위치가 잘못됐습니다.';
+        return;
+      }
+      const left = m.text.substring(0, m.at).trim();
+      const right = m.text.substring(m.at).trim();
+      if (!left || !right) {
+        m.error = '분할 위치가 텍스트 끝에 너무 가깝습니다.';
+        return;
+      }
+      m.busy = true;
+      m.error = '';
+      try {
+        const url = (this.mode === 'recording')
+          ? '/api/recording/segments/' + m.seg.id + '/split'
+          : '/api/meetings/' + this.meetingId + '/segments/' + m.seg.id + '/split';
+        const r = await fetch(url, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({split_at: m.at}),
+        });
+        if (!r.ok) {
+          const err = await r.json().catch(() => ({detail: r.statusText}));
+          throw new Error(err.detail || ('HTTP ' + r.status));
+        }
+        const d = await r.json();
+        // UI 즉시 갱신: 원본 카드 → left, 새 right 카드 추가
+        const segs = (this.mode === 'recording') ? this.segments : (this.finalResult.segments || []);
+        const idx = segs.findIndex(x => x.id === m.seg.id);
+        if (idx < 0) {
+          // 못 찾으면 그냥 닫기 — 다음 polling 으로 갱신될 것
+          this.closeSplitModal();
+          return;
+        }
+        if (this.mode === 'recording') {
+          // 녹음 중: response 의 left/right 사용
+          if (d.left) Object.assign(segs[idx], d.left);
+          if (d.right) segs.splice(idx + 1, 0, d.right);
+        } else {
+          // 완료 모드: response 의 segments 배열 (정렬됨)
+          const newSegs = (d.segments || []).map(s => ({
+            ...s,
+            duration_ms: Math.max(0, (s.end_ms || 0) - (s.start_ms || 0)),
+          }));
+          if (newSegs.length === 2) {
+            Object.assign(segs[idx], newSegs[0]);
+            segs.splice(idx + 1, 0, newSegs[1]);
+          }
+        }
+        this.closeSplitModal();
+      } catch (e) {
+        m.error = '분할 실패: ' + (e.message || e);
+      } finally {
+        m.busy = false;
       }
     },
 

@@ -676,6 +676,96 @@
     </section>
 
 
+    <!-- ============ v3.5.4: 경로 마이그레이션 (PC 간 이동 후 재연결) ============ -->
+    <section x-show="currentTab === 'folders' && isMaster" x-cloak
+             class="bg-amber-50 dark:bg-amber-900/20 rounded-xl border border-amber-200 dark:border-amber-700 p-5">
+      <div class="flex items-center justify-between mb-2">
+        <h2 class="font-semibold flex items-center gap-2 text-amber-900 dark:text-amber-200">
+          <span>🔧</span> 모든 상담 경로를 현재 폴더에 맞게 갱신
+          <span class="text-xs bg-amber-200 dark:bg-amber-800 text-amber-800 dark:text-amber-200 px-2 py-0.5 rounded">마스터 전용</span>
+        </h2>
+      </div>
+      <p class="text-sm text-gray-700 dark:text-gray-300 mb-3">
+        다른 PC 에서 녹음한 데이터를 외장 SSD 등으로 옮긴 후, 위 <strong>고객 폴더 루트 경로</strong>를 변경했다면
+        DB 안의 절대경로도 같이 갱신해야 재전사·분석이 동작합니다. 이 버튼이 그 작업을 일괄 처리합니다.
+      </p>
+      <div class="flex gap-2 mb-3">
+        <button @click="previewPathMigration()" :disabled="pathMig.busy"
+                class="text-sm bg-gray-700 hover:bg-gray-900 dark:bg-gray-600 text-white px-3 py-2 rounded disabled:opacity-50">
+          🔍 미리보기 (변경 안 함)
+        </button>
+        <button @click="runPathMigration()" :disabled="pathMig.busy || !pathMig.preview || pathMig.preview.meetings.to_change === 0"
+                class="text-sm bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded disabled:opacity-50">
+          🔧 실제 적용
+        </button>
+      </div>
+      <div x-show="pathMig.preview" x-cloak class="text-sm bg-white/70 dark:bg-gray-800/40 rounded p-3 mb-2">
+        <div>고객 <strong x-text="pathMig.preview?.clients?.to_change ?? 0"></strong>건 / 상담 <strong x-text="pathMig.preview?.meetings?.to_change ?? 0"></strong>건 변경 가능</div>
+        <div class="text-xs text-gray-500 mt-1">
+          (새 경로에 폴더 없는 항목은 자동 skip:
+          고객 <span x-text="pathMig.preview?.clients?.missing_target ?? 0"></span>건,
+          상담 <span x-text="pathMig.preview?.meetings?.missing_target ?? 0"></span>건)
+        </div>
+      </div>
+      <div x-show="pathMig.result" x-cloak class="text-sm p-3 rounded"
+           :class="pathMig.result?.ok ? 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-800 dark:text-emerald-200' :
+                   'bg-red-50 dark:bg-red-900/20 text-red-800 dark:text-red-200'">
+        <strong x-show="pathMig.result?.ok">✅ 완료</strong>
+        고객 <span x-text="pathMig.result?.changed_clients ?? 0"></span>건 / 상담 <span x-text="pathMig.result?.changed_meetings ?? 0"></span>건 갱신됨
+        <span x-show="pathMig.result?.skipped_count > 0">(<span x-text="pathMig.result?.skipped_count"></span>건 skip)</span>
+      </div>
+      <div x-show="pathMig.error" x-cloak class="text-sm text-red-600 dark:text-red-400" x-text="pathMig.error"></div>
+    </section>
+
+
+    <!-- ============ v3.5.4: 외부 폴더에서 상담 데이터 임포트 ============ -->
+    <section x-show="currentTab === 'folders' && isMaster" x-cloak
+             class="bg-indigo-50 dark:bg-indigo-900/20 rounded-xl border border-indigo-200 dark:border-indigo-700 p-5">
+      <div class="flex items-center justify-between mb-2">
+        <h2 class="font-semibold flex items-center gap-2 text-indigo-900 dark:text-indigo-200">
+          <span>📥</span> 외부 폴더에서 상담 데이터 가져오기
+          <span class="text-xs bg-indigo-200 dark:bg-indigo-800 text-indigo-800 dark:text-indigo-200 px-2 py-0.5 rounded">마스터 전용</span>
+        </h2>
+      </div>
+      <p class="text-sm text-gray-700 dark:text-gray-300 mb-3">
+        다른 PC 에서 녹음한 상담 폴더가 있는 경로를 지정하면, <strong>고객·상담·전사·AI 분석</strong>을 일괄 임포트합니다.
+        (이미 있는 항목은 skip — 덮어쓰기 안 함)
+      </p>
+      <div class="flex gap-2 mb-3">
+        <input x-model="importer.path" type="text"
+               placeholder="예: E:\Livart&문테리어\07_고객정보"
+               class="flex-1 text-sm border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 bg-white dark:bg-gray-700 dark:text-gray-100 font-mono"/>
+        <button @click="pickImportFolder()"
+                class="text-sm bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 px-3 py-2 rounded hover:bg-gray-200 dark:hover:bg-gray-600 whitespace-nowrap">📂 찾아보기</button>
+      </div>
+      <div class="flex gap-2 mb-3">
+        <button @click="previewImport()" :disabled="importer.busy || !importer.path"
+                class="text-sm bg-gray-700 hover:bg-gray-900 dark:bg-gray-600 text-white px-3 py-2 rounded disabled:opacity-50">
+          🔍 미리보기
+        </button>
+        <button @click="runImport()" :disabled="importer.busy || !importer.preview || importer.preview.new_meetings === 0"
+                class="text-sm bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded disabled:opacity-50">
+          📥 가져오기
+        </button>
+      </div>
+      <div x-show="importer.preview" x-cloak class="text-sm bg-white/70 dark:bg-gray-800/40 rounded p-3 mb-2">
+        <div>📂 고객 <strong x-text="importer.preview?.found_clients ?? 0"></strong>명 발견 (신규 <strong x-text="importer.preview?.new_clients ?? 0"></strong>명)</div>
+        <div>📋 상담 <strong x-text="importer.preview?.found_meetings ?? 0"></strong>건 발견 (신규 <strong x-text="importer.preview?.new_meetings ?? 0"></strong>건)</div>
+        <div x-show="importer.preview?.samples?.length" class="text-xs text-gray-500 mt-2">
+          샘플: <span x-text="(importer.preview?.samples || []).slice(0, 3).map(s => s.client + '/' + s.meeting).join(', ')"></span>...
+        </div>
+      </div>
+      <div x-show="importer.result" x-cloak class="text-sm bg-emerald-50 dark:bg-emerald-900/20 text-emerald-800 dark:text-emerald-200 p-3 rounded">
+        ✅ 완료 — 고객 <strong x-text="importer.result?.added_clients ?? 0"></strong>명, 상담 <strong x-text="importer.result?.added_meetings ?? 0"></strong>건,
+        전사 카드 <strong x-text="importer.result?.added_segments ?? 0"></strong>개, AI 분석 <strong x-text="importer.result?.added_analyses ?? 0"></strong>건 추가됨
+        <div x-show="importer.result?.error_count > 0" class="text-xs text-amber-700 dark:text-amber-300 mt-1">
+          (<span x-text="importer.result?.error_count"></span>건 오류 — 콘솔 확인)
+        </div>
+      </div>
+      <div x-show="importer.error" x-cloak class="text-sm text-red-600 dark:text-red-400" x-text="importer.error"></div>
+    </section>
+
+
     <!-- ============ 폴더 템플릿 (Phase 6A) ============ -->
     <section x-show="currentTab === 'folders'" x-cloak class="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 p-5">
       <div class="flex items-center justify-between mb-3">
@@ -2064,6 +2154,21 @@ function settingsPage() {
     ollamaRemoteMsg: '',          // 결과 메시지 (HTML)
     ollamaRemoteBusy: false,
 
+    // v3.5.4: 경로 마이그레이션 + 외부 폴더 임포트
+    pathMig: {
+      preview: null,   // {clients, meetings, ...}
+      result: null,
+      error: '',
+      busy: false,
+    },
+    importer: {
+      path: '',
+      preview: null,
+      result: null,
+      error: '',
+      busy: false,
+    },
+
     // v3.5.3: 중앙 계정 관리 (Auth Server) 상태
     authServer: {
       serverEnabled: false,    // 이 PC 가 서버
@@ -2541,6 +2646,88 @@ function settingsPage() {
       this.authServer.clientApiKey = '';
       await this.saveAuthServerClient();
       this.authServer.state = 'unknown';
+    },
+
+    // ===== v3.5.4: 경로 마이그레이션 =====
+    async previewPathMigration() {
+      this.pathMig.busy = true;
+      this.pathMig.error = '';
+      this.pathMig.result = null;
+      try {
+        const r = await fetch('/api/paths/preview', {method: 'POST'});
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.detail || '미리보기 실패');
+        this.pathMig.preview = d;
+      } catch(e) {
+        this.pathMig.error = e.message || String(e);
+      } finally { this.pathMig.busy = false; }
+    },
+    async runPathMigration() {
+      if (!confirm('DB 안의 모든 상담 경로를 현재 폴더 기준으로 갱신합니다.\n새 경로에 폴더 없는 항목은 자동 skip 됩니다.\n진행할까요?')) return;
+      this.pathMig.busy = true;
+      this.pathMig.error = '';
+      try {
+        const r = await fetch('/api/paths/migrate', {method: 'POST'});
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.detail || '갱신 실패');
+        this.pathMig.result = d;
+        this.pathMig.preview = null;
+      } catch(e) {
+        this.pathMig.error = e.message || String(e);
+      } finally { this.pathMig.busy = false; }
+    },
+
+    // ===== v3.5.4: 외부 폴더 임포트 =====
+    async pickImportFolder() {
+      try {
+        if (!window.pywebview || !window.pywebview.api) {
+          alert('이 기능은 InterioNote 앱 안에서만 동작합니다.');
+          return;
+        }
+        const result = await window.pywebview.api.pick_folder(this.importer.path || '');
+        if (result) this.importer.path = result;
+      } catch(e) { alert('폴더 선택 실패: ' + e); }
+    },
+    async previewImport() {
+      const path = (this.importer.path || '').trim();
+      if (!path) return;
+      this.importer.busy = true;
+      this.importer.error = '';
+      this.importer.result = null;
+      try {
+        const r = await fetch('/api/import/preview', {
+          method: 'POST',
+          headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({root: path}),
+        });
+        const d = await r.json();
+        if (!r.ok || !d.ok) throw new Error(d.detail || d.error || '미리보기 실패');
+        this.importer.preview = d;
+      } catch(e) {
+        this.importer.error = e.message || String(e);
+      } finally { this.importer.busy = false; }
+    },
+    async runImport() {
+      const path = (this.importer.path || '').trim();
+      if (!path || !this.importer.preview) return;
+      const newCnt = this.importer.preview.new_meetings || 0;
+      if (newCnt === 0) { alert('가져올 신규 상담이 없습니다.'); return; }
+      if (!confirm(`상담 ${newCnt}건을 DB에 추가합니다. 진행할까요?`)) return;
+      this.importer.busy = true;
+      this.importer.error = '';
+      try {
+        const r = await fetch('/api/import/run', {
+          method: 'POST',
+          headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({root: path}),
+        });
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.detail || '임포트 실패');
+        this.importer.result = d;
+        this.importer.preview = null;
+      } catch(e) {
+        this.importer.error = e.message || String(e);
+      } finally { this.importer.busy = false; }
     },
 
     // 분석 추가 항목

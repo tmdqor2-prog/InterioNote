@@ -269,3 +269,25 @@ def edit_recording_segment_text(segment_id: int, req: SegmentTextRequest):
         "text": updated["text"],
         "edited_at": updated["edited_at"],
     }
+
+
+# ----------------------------------------
+# v3.5.4: 녹음 중 카드 분할
+# ----------------------------------------
+class SegmentSplitLiveRequest(BaseModel):
+    split_at: int
+
+
+@router.post("/recording/segments/{segment_id}/split")
+def split_recording_segment(segment_id: int, req: SegmentSplitLiveRequest):
+    """녹음 중 in-memory 카드를 분할 — 한 카드에 두 사람 대화가 같이 있을 때."""
+    s = live_session.get_active()
+    if s is None:
+        raise HTTPException(404, "진행 중인 녹음이 없습니다.")
+    try:
+        result = s.split_segment(segment_id, req.split_at)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    if result is None:
+        raise HTTPException(404, f"segment {segment_id} not found")
+    return result

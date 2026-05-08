@@ -12,15 +12,38 @@ from typing import Any, Dict, List, Optional
 
 
 SYSTEM_PROMPT = (
+    # v3.5.4: qwen2.5 같은 중국 모델이 system 약하면 중국어로 빠지는 문제 방지.
+    # 영어 + 한국어 양방향 + 명시적 금지 언어 표시 + 마지막에 다시 한 번 강조.
+    "[CRITICAL OUTPUT LANGUAGE RULE]\n"
+    "You MUST respond entirely in KOREAN (한국어, ko-KR) ONLY.\n"
+    "DO NOT use Chinese (zh), Japanese (ja), or English in any output value.\n"
+    "절대로 중국어 한자나 일본어, 영어로 응답하지 마세요. 모든 출력 값은 100% 한국어로 작성.\n\n"
     "당신은 대한민국의 숙련된 인테리어 디자이너 한 명을 도와 상담 녹취록을 정리하는 "
-    "비서입니다. 규칙을 엄격히 지킵니다.\n"
+    "한국어 전문 비서입니다. 규칙을 엄격히 지킵니다.\n"
     "1) 출력은 반드시 지정된 JSON 스키마를 따릅니다. 추가 키/설명/마크다운을 넣지 않습니다.\n"
     "2) 원문 녹취록에 등장하지 않은 정보는 절대 만들어내지 않습니다.\n"
     "3) 애매하거나 언급이 없는 항목은 빈 배열 [] 또는 빈 문자열 \"\" 로 둡니다.\n"
-    "4) 모든 값은 한국어로 작성합니다.\n"
+    "4) 모든 값은 한국어로만 작성합니다 (중국어 한자·영문 단독 단어 금지).\n"
     "5) 인테리어 업계 용어(샷시, 몰딩, 걸레받이, 강마루, 도배, 중도금, 실측 등)를 "
-    "정확히 그대로 유지합니다."
+    "정확히 그대로 유지합니다.\n\n"
+    "[FINAL REMINDER] Output language: Korean only. 출력 언어: 한국어 전용."
 )
+
+
+def has_significant_chinese(text: str) -> bool:
+    """v3.5.4: 응답이 비정상적으로 중국어로 나왔는지 감지.
+    한국어 분석 결과에 중국어 한자가 한국어 글자 수의 20% 이상이면 의심.
+    (한국어 인명·전문용어로 한자 1~2개 들어갈 수는 있음)
+    """
+    if not text:
+        return False
+    chinese = sum(1 for c in text if '一' <= c <= '鿿')
+    korean = sum(1 for c in text if '가' <= c <= '힯')
+    if korean == 0 and chinese > 10:
+        return True
+    if korean > 0 and chinese > korean * 0.2:
+        return True
+    return False
 
 
 # ========================================
@@ -123,8 +146,12 @@ def build_prompt(
         "- 반드시 위 스키마의 모든 최상위 키를 포함한 JSON 객체 하나만 출력.\n"
         "- 값이 리스트인 키는 문자열 리스트 (객체가 아닌 순수 문자열 항목).\n"
         "- 언급이 없는 키는 빈 문자열 \"\" 또는 빈 리스트 [].\n"
-        "- JSON 이외의 텍스트(서두, 설명, 마크다운 코드펜스)는 일체 포함하지 말 것.\n\n"
-        f"### 녹취록\n{transcript_text}\n"
+        "- JSON 이외의 텍스트(서두, 설명, 마크다운 코드펜스)는 일체 포함하지 말 것.\n"
+        # v3.5.4: 출력 언어 마지막 강제 — qwen 등 모델이 중국어로 빠지는 것 방지
+        "- ⚠ 모든 텍스트 값은 반드시 한국어 (Korean) 로만 작성. 중국어 한자·영어 금지.\n"
+        "- ⚠ Output values MUST be in Korean only. NO Chinese, NO English.\n\n"
+        f"### 녹취록\n{transcript_text}\n\n"
+        "[REMINDER] 응답은 반드시 한국어 JSON. Respond in Korean JSON only."
     )
 
 

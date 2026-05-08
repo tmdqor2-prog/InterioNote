@@ -435,6 +435,89 @@ def update_segment_text(
 
 
 # ========================================
+# v3.5.4: 카드 분할 — 한 카드 안에 두 사람 발화가 같이 있을 때 분리
+# POST /api/meetings/{id}/segments/{seg_id}/split
+# ========================================
+class SegmentSplitRequest(BaseModel):
+    split_at: int  # 텍스트 안의 분할 위치 (0-based char index)
+
+
+@router.post("/{meeting_id}/segments/{segment_id}/split")
+def split_segment(meeting_id: int, segment_id: int, req: SegmentSplitRequest):
+    """
+    한 segment 를 두 개로 분리.
+    - 텍스트는 split_at 인덱스에서 자름
+    - 시간(start_ms, end_ms) 은 텍스트 길이 비례로 자동 분할
+    - 화자(speaker), 신뢰도(confidence) 등은 양쪽에 그대로 복사
+    - 두 새 카드 모두 edited_at 표시 (재전사가 보존하도록)
+    """
+    with db_cursor() as cur:
+        row = cur.execute(
+            "SELECT * FROM transcript_segments WHERE id = ? AND meeting_id = ?",
+            (segment_id, meeting_id),
+        ).fetchone()
+        if row is None:
+            raise HTTPException(404, f"segment {segment_id} 를 찾을 수 없습니다.")
+        text = row["text"] or ""
+        n = len(text)
+        at = max(1, min(req.split_at, n - 1))  # 양쪽이 비지 않도록 clamp
+        left_text = text[:at].strip()
+        right_text = text[at:].strip()
+        if not left_text or not right_text:
+            raise HTTPException(400, "분할 위치가 텍스트 끝에 너무 가깝습니다 — 양쪽이 모두 비어 있지 않게 위치를 조정하세요.")
+
+        # 시간은 텍스트 길이 비례로 분할
+        start_ms = int(row["start_ms"])
+        end_ms = int(row["end_ms"])
+        ratio = at / n
+        mid_ms = start_ms + int((end_ms - start_ms) * ratio)
+        # 최소 100ms 이상 양쪽 분할
+        mid_ms = max(start_ms + 100, min(mid_ms, end_ms - 100))
+
+        # 원본 행을 left 로 update (텍스트·end_ms 변경)
+        cur.execute(
+            "UPDATE transcript_segments "
+            "SET text = ?, end_ms = ?, edited_at = CURRENT_TIMESTAMP "
+            "WHERE id = ?",
+            (left_text, mid_ms, segment_id),
+        )
+        # 새 right 행 INSERT (start_ms = mid_ms, 화자·신뢰도 복사)
+        cur.execute(
+            "INSERT INTO transcript_segments(meeting_id, start_ms, end_ms, text, "
+            "                                speaker, confidence, edited_at) "
+            "VALUES(?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)",
+            (
+                meeting_id,
+                mid_ms,
+                end_ms,
+                right_text,
+                row["speaker"],
+                row["confidence"],
+            ),
+        )
+        new_right_id = cur.lastrowid
+        # 분할된 두 행 모두 반환 (UI 즉시 갱신용)
+        rows = cur.execute(
+            "SELECT * FROM transcript_segments WHERE id IN (?, ?) ORDER BY start_ms",
+            (segment_id, new_right_id),
+        ).fetchall()
+
+    md_warning = None
+    try:
+        meeting_finalizer.regenerate_transcript_md(meeting_id)
+    except Exception as e:
+        md_warning = f"{type(e).__name__}: {e}"
+
+    return {
+        "ok": True,
+        "left_id": segment_id,
+        "right_id": new_right_id,
+        "segments": [dict(r) for r in rows],
+        "md_warning": md_warning,
+    }
+
+
+# ========================================
 # POST /api/meetings/{id}/retranscribe
 # Two-pass 후처리 — 더 큰 모델로 재전사
 # ========================================

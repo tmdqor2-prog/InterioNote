@@ -435,16 +435,26 @@ def transcribe_segment(
         word_timestamps=False,
     )
 
-    text_parts = []
+    # v3.5.4: faster-whisper segments 를 그대로 보존 (마침표 단위 분할용)
+    # 너무 짧은 segment 는 옆과 병합해서 카드 가독성 유지
+    raw_segs = []
     logprobs = []
     for seg in segments:
         t = (seg.text or "").strip()
         if t:
-            text_parts.append(t)
+            raw_segs.append({
+                "start": float(seg.start or 0),
+                "end": float(seg.end or 0),
+                "text": t,
+                "avg_logprob": getattr(seg, "avg_logprob", None),
+            })
         if getattr(seg, "avg_logprob", None) is not None:
             logprobs.append(seg.avg_logprob)
 
-    text = " ".join(text_parts).strip()
+    # 너무 짧은 segment 는 다음 segment 와 병합 (1초 이하 + 6자 이하)
+    sub_segments = _merge_short_segments(raw_segs, min_chars=6, min_dur_sec=1.0)
+
+    text = " ".join(s["text"] for s in sub_segments).strip()
     avg_conf = float(sum(logprobs) / len(logprobs)) if logprobs else None
 
     # 반복 환각이면 빈 문자열로 — LiveSession 측에서 카드 자체를 만들지 않음
@@ -452,6 +462,7 @@ def transcribe_segment(
         log.info(f"hallucination filtered (conf={avg_conf}): {text[:60]}...")
         return {
             "text": "",
+            "sub_segments": [],
             "language": info.language,
             "language_prob": float(info.language_probability or 0.0),
             "avg_confidence": avg_conf,
@@ -460,7 +471,38 @@ def transcribe_segment(
 
     return {
         "text": text,
+        "sub_segments": sub_segments,  # v3.5.4: 마침표 단위 분할용
         "language": info.language,
         "language_prob": float(info.language_probability or 0.0),
         "avg_confidence": avg_conf,
     }
+
+
+def _merge_short_segments(raw_segs, min_chars: int = 6, min_dur_sec: float = 1.0):
+    """v3.5.4: faster-whisper 가 너무 잘게 자른 segments 를 병합.
+    가독성 좋은 카드 단위 (마침표 ~ 5초 정도) 로 합침.
+    """
+    if not raw_segs:
+        return []
+    out: list[dict] = []
+    pending = None
+    for seg in raw_segs:
+        if pending is None:
+            pending = dict(seg)
+            continue
+        pending_dur = pending["end"] - pending["start"]
+        # pending 이 너무 짧으면 (글자 수·시간 둘 다 부족) 다음과 병합
+        if len(pending["text"]) < min_chars or pending_dur < min_dur_sec:
+            pending["end"] = seg["end"]
+            pending["text"] = (pending["text"] + " " + seg["text"]).strip()
+        else:
+            out.append(pending)
+            pending = dict(seg)
+    if pending is not None:
+        # 마지막도 너무 짧으면 이전과 병합
+        if out and (len(pending["text"]) < min_chars or (pending["end"] - pending["start"]) < min_dur_sec):
+            out[-1]["end"] = pending["end"]
+            out[-1]["text"] = (out[-1]["text"] + " " + pending["text"]).strip()
+        else:
+            out.append(pending)
+    return out

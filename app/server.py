@@ -20,6 +20,7 @@ from app.api import customer as customer_api
 from app.api import export as export_api
 from app.api import followup as followup_api
 from app.api import home as home_api
+from app.api import import_data as import_api
 from app.api import meetings as meetings_api
 from app.api import ojt as ojt_api
 from app.api import pdf as pdf_api
@@ -120,6 +121,8 @@ def create_app() -> FastAPI:
     app.include_router(users_api.router)
     # v3.5.3: 다른 PC 가 호출하는 Auth Server 엔드포인트 (X-Auth-Server-Key 인증)
     app.include_router(auth_server_api.router)
+    # v3.5.4: 외부 폴더 임포트 + 경로 마이그레이션
+    app.include_router(import_api.router)
     app.include_router(home_api.router)
     app.include_router(meetings_api.router)
     app.include_router(recording_api.router)
