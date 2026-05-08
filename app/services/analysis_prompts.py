@@ -51,46 +51,81 @@ def has_significant_chinese(text: str) -> bool:
 # ========================================
 SCHEMAS: Dict[str, Dict[str, Any]] = {
     "초도상담": {
-        "summary": "전체 상담을 3~5문장으로 요약",
+        "summary": "전체 상담을 5~8문장으로 자세히 요약 (배경·요청·우려·다음 단계 모두 포함)",
         "client_info": {
-            "household": "가족 구성 / 거주 인원 (언급 없으면 빈 문자열)",
-            "move_in_timeline": "입주 또는 공사 희망 시기",
-            "budget_range": "예산 범위 (원문 그대로)",
-            "preferred_style": "선호 스타일",
+            "household": "가족 구성 / 거주 인원 (예: '부부+자녀 2명, 시부모 동거')",
+            "move_in_timeline": "입주 또는 공사 희망 시기 (구체 일자·계절)",
+            "budget_range": "예산 범위 (원문 그대로, 평당 단가 포함)",
+            "preferred_style": "선호 스타일 (모던·북유럽·클래식·러블리·미드센추리 등)",
+            "lifestyle": "생활 패턴 (재택근무·요리 빈도·홈파티·반려동물·자녀 학습 공간 등)",
+            "decision_makers": "의사결정자 (남편/아내/부모/자녀 중 누가 주도)",
+            "current_pain_points": "지금 집의 불편한 점 (수납 부족·동선 꼬임·습기·채광 등)",
+            "inspiration_sources": "영감 출처 (인스타·잡지·지인 집·모델하우스 등)",
         },
         # v2.5.1 H2: 인테리어 장소 정보 — 폴더명 자동 수정 제안에도 사용됨
         "site_info": {
-            "address": "지역·구·동 등 주소 정보 (예: '자양동' '서초구 동산로')",
+            "address": "지역·구·동 등 주소 (예: '자양동' '서초구 동산로')",
             "complex_name": "아파트·빌라·단지 이름 (예: '우성아파트' '래미안')",
             "building_unit": "동·호수 (예: '108동 1502호')",
-            "size_pyeong": "평형 (숫자 + '평' — 예: '32평')",
-            "size_m2": "전용면적 m2 (숫자 + 'm2' 또는 'm²')",
-            "expansion": "확장 여부 (확장형/비확장 등 원문 표현)",
+            "size_pyeong": "평형 (숫자 + '평')",
+            "size_m2": "전용면적 m2",
+            "expansion": "확장 여부 (확장형/비확장)",
             "structure_type": "구조 (예: '판상형 32A타입')",
+            "floor_count": "층수·로얄층 여부",
+            "current_state": "현재 상태 (신축·구축·반전세·셀프인테리어 후 등)",
         },
-        "client_requests": ["고객이 명시적으로 요청한 항목들 (리스트)"],
-        "concerns": ["고객이 걱정하거나 꺼린 사항들"],
-        "action_items": ["디자이너가 다음까지 해야 할 일"],
-        "next_meeting_prep": ["다음 미팅(보통 디자인미팅) 전에 준비·제안해야 할 것"],
+        "client_requests":   ["고객이 명시적으로 요청한 항목 (구체 위치·자재·기능)"],
+        "must_have":         ["⭐ 절대 빠지면 안 되는 핵심 요구사항 (deal-breaker)"],
+        "nice_to_have":      ["있으면 좋은 항목 (예산 여유 시 검토)"],
+        "taboo_items":       ["절대 안 되는 것 (예: 어두운 색 / 특정 자재 알레르기)"],
+        "concerns":          ["고객이 걱정한 사항 (가격·일정·하자·소음·환기 등)"],
+        "competitor_context":["다른 업체 견적·비교 언급 / 경쟁 상황"],
+        "urgency_factors":   ["시급함 요소 (이사일·전세 만료·자녀 학기·결혼식 등)"],
+        "key_quotes":        ["💬 고객의 인상 깊은 말·핵심 요구를 그대로 인용 (1~3개)"],
+        "action_items":      ["디자이너가 다음까지 해야 할 일 (구체 액션)"],
+        "next_meeting_prep": ["다음 미팅(보통 디자인미팅) 전 준비·제안 사항"],
+        "follow_up_tone":    "이 고객 응대 톤 추천 (예: 데이터 위주 / 감성 어필 / 신속 응답 중요 등)",
     },
     "디자인미팅": {
-        "summary": "전체 상담을 3~5문장으로 요약",
-        "design_directions": ["이번 미팅에서 확정 또는 제안된 디자인 방향"],
-        "agreed_items": ["고객이 동의·확정한 항목"],
-        "pending_decisions": ["아직 결정되지 않아 다음 미팅으로 넘어간 항목"],
-        "change_requests": ["고객이 변경·수정을 요청한 항목"],
-        "material_finishes": ["합의된 자재·마감재 (예: 강마루 고급형, 도장 무광 등)"],
-        "action_items": ["디자이너가 다음 미팅 전에 준비할 일"],
+        "summary": "전체 미팅을 5~8문장으로 자세히 요약",
+        "design_directions": ["확정·제안된 디자인 방향 (전체 컨셉 + 공간별)"],
+        "agreed_items":      ["✅ 고객이 동의·확정한 항목 (다음 단계로 넘어감)"],
+        "pending_decisions": ["⏳ 아직 결정 안 된 항목 (다음 미팅 의제)"],
+        "change_requests":   ["🔁 고객이 변경·수정 요청한 항목"],
+        "space_plan": {
+            "living":  "거실 결정 사항 (소파·TV·아트월·조명 등)",
+            "kitchen": "주방 결정 사항 (싱크·아일랜드·후드·타일)",
+            "bedroom": "안방·침실 결정 사항",
+            "bathroom":"욕실 결정 사항 (타일·세면대·욕조·샤워부스)",
+            "other":   "기타 공간 (드레스룸·서재·다용도실 등)",
+        },
+        "material_finishes": ["합의된 자재·마감재 (브랜드/등급 포함, 예: '동화 강마루 고급형')"],
+        "color_palette":     ["합의된 색상 팔레트 (메인·서브·포인트)"],
+        "lighting_plan":     ["조명 계획 (간접·매립·펜던트·트랙 등)"],
+        "furniture_plan":    ["가구 결정 (붙박이·이동식·기존 활용·새 구매)"],
+        "storage_solutions": ["수납 솔루션 (붙박이장·팬트리·시스템 옷장 등)"],
+        "concerns":          ["고객 우려 (디자인 호불호·실용성·예산 초과 등)"],
+        "key_quotes":        ["💬 고객의 결정적 발언 (1~3개)"],
+        "action_items":      ["디자이너가 다음 미팅 전 준비할 일"],
+        "estimated_quote_direction": "다음 견적 미팅에서 제시할 가격대 방향",
     },
     "견적미팅": {
-        "summary": "전체 상담을 3~5문장으로 요약",
-        "agreed_price": "합의된 총 금액 (원문 그대로, 없으면 빈 문자열)",
-        "payment_schedule": ["계약금/중도금/잔금 등 대금 지급 일정"],
-        "price_points": ["가격 협의 포인트 (할인, 옵션 변경 등)"],
-        "included_scope": ["견적에 포함되는 공사 범위"],
-        "excluded_scope": ["견적에서 제외되는 항목"],
-        "concerns": ["고객이 가격·범위·일정에 대해 우려한 부분"],
-        "action_items": ["계약 전 디자이너가 확인·준비할 일"],
+        "summary": "전체 미팅을 5~8문장으로 자세히 요약",
+        "agreed_price":      "합의된 총 금액 (원문 그대로)",
+        "price_breakdown":   ["항목별 견적 내역 (예: '철거 350만원, 도배 280만원')"],
+        "discount_negotiations": ["할인·옵션 변경 협상 내역"],
+        "payment_schedule":  ["계약금/중도금/잔금 일정 + 금액"],
+        "included_scope":    ["✅ 견적에 포함되는 공사 범위"],
+        "excluded_scope":    ["🚫 견적에서 제외되는 항목 (별도 비용)"],
+        "material_brands":   ["자재 브랜드·등급 (강마루=동화 골드, 도배=LG베스띠 등)"],
+        "schedule_phases":   ["공사 단계별 일정 (철거→설비→마감→입주)"],
+        "contract_terms":    ["계약 조건 (보증·하자·AS·중도 변경)"],
+        "concerns":          ["고객 우려 (가격 부담·하자·일정 지연 등)"],
+        "customer_signals":  "고객 의사 시그널 ('긍정적' / '중립' / '부정적' / '추가 비교 필요')",
+        "next_action":       "다음 액션 ('계약 진행' / '재상담' / '견적 수정' / '보류')",
+        "key_quotes":        ["💬 고객의 결정적 발언 (1~3개)"],
+        "action_items":      ["계약 전 디자이너가 확인·준비할 일"],
+        "estimated_close_probability": "계약 성사 가능성 ('높음' / '보통' / '낮음') + 한 줄 근거",
     },
 }
 
@@ -109,10 +144,13 @@ def build_prompt(
     client_name: Optional[str] = None,
     client_descriptor: Optional[str] = None,
     extra_items: Optional[List[dict]] = None,
+    existing_analysis: Optional[Dict[str, Any]] = None,
 ) -> str:
     """
     analyze 용 프롬프트 본문. Ollama generate() 의 `prompt` 인자로 전달.
     extra_items: [{"key": str, "label": str, "type": "list"|"text"}, ...]
+    existing_analysis: v3.5.5 — 기존 분석이 있으면 prompt 에 포함해서
+                       AI 가 보존·보강 모드로 동작하게 함 (재전사 시 유용).
     """
     if meeting_type not in SCHEMAS:
         raise ValueError(f"unknown meeting_type: {meeting_type}")
@@ -137,22 +175,94 @@ def build_prompt(
             context_lines.append(f"고객: {client_name}")
     context_block = "\n".join(context_lines)
 
+    # v3.5.5: 기존 분석이 있으면 보존·보강 모드 안내 추가
+    existing_block = ""
+    if existing_analysis and isinstance(existing_analysis, dict):
+        # 너무 크면 잘라서 토큰 절약
+        import json as _json
+        try:
+            existing_text = _json.dumps(existing_analysis, ensure_ascii=False, indent=2)
+            if len(existing_text) > 6000:
+                existing_text = existing_text[:6000] + "\n... (이하 생략)"
+            existing_block = (
+                "\n### ⚠ 기존 분석 결과 (보존·보강 모드)\n"
+                "아래는 이전 분석에서 이미 추출된 내용입니다. "
+                "**기존 정보는 그대로 보존**하고, 새 녹취록에서 추가로 발견된 내용만 보강해 주세요.\n"
+                "- 이미 채워진 항목 → 그대로 유지하거나 정보가 늘어났으면 보강\n"
+                "- 빈 항목 (\"\" 또는 [])  → 새 녹취록에서 발견된 내용으로 채움\n"
+                "- 사용자가 직접 수정한 항목으로 보이면 표현·표기를 함부로 바꾸지 않음\n\n"
+                f"```json\n{existing_text}\n```\n"
+            )
+        except Exception:
+            pass
+
     return (
         f"다음은 인테리어 {meeting_type} 상담의 녹취록입니다. "
-        "이 녹취록을 읽고, 아래에 제시된 JSON 스키마의 모든 키를 채워 응답하세요.\n\n"
+        "이 녹취록을 읽고, 아래에 제시된 JSON 스키마의 모든 키를 가능한 한 풍부하게 채워 응답하세요.\n\n"
         f"### 상담 컨텍스트\n{context_block}\n\n"
-        f"### 출력 스키마 (키와 의미 설명)\n```json\n{schema_text}\n```\n\n"
+        f"### 출력 스키마 (키와 의미 설명)\n```json\n{schema_text}\n```\n"
+        f"{existing_block}\n"
         "### 출력 규칙\n"
         "- 반드시 위 스키마의 모든 최상위 키를 포함한 JSON 객체 하나만 출력.\n"
         "- 값이 리스트인 키는 문자열 리스트 (객체가 아닌 순수 문자열 항목).\n"
         "- 언급이 없는 키는 빈 문자열 \"\" 또는 빈 리스트 [].\n"
         "- JSON 이외의 텍스트(서두, 설명, 마크다운 코드펜스)는 일체 포함하지 말 것.\n"
+        "- ⭐ 풍부하게 작성: summary 는 5~8문장, 리스트 항목은 최대한 많이 추출 (3개 이상 권장).\n"
+        "- ⭐ key_quotes 항목이 있으면 고객의 인상 깊은 말을 큰따옴표로 그대로 인용.\n"
         # v3.5.4: 출력 언어 마지막 강제 — qwen 등 모델이 중국어로 빠지는 것 방지
         "- ⚠ 모든 텍스트 값은 반드시 한국어 (Korean) 로만 작성. 중국어 한자·영어 금지.\n"
         "- ⚠ Output values MUST be in Korean only. NO Chinese, NO English.\n\n"
         f"### 녹취록\n{transcript_text}\n\n"
         "[REMINDER] 응답은 반드시 한국어 JSON. Respond in Korean JSON only."
     )
+
+
+# v3.5.5: 기존 + 신규 분석 dict 병합 (보존 우선)
+def merge_analysis(existing: Optional[Dict[str, Any]], new: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    기존 분석에 새 분석을 보강 — 사용자가 편집한 내용 + 정보 손실 방지.
+
+    규칙:
+    - existing 가 비어 있으면 → new 그대로
+    - 같은 키가 양쪽에 있을 때:
+      - 둘 다 문자열: existing 가 비어 있으면 new, 아니면 existing 유지 (사용자 편집 보존)
+      - 둘 다 리스트: 합집합 (중복 제거, 순서는 existing → 신규 항목)
+      - 둘 다 dict: 재귀 merge
+      - 타입 다르면: existing 우선
+    """
+    if not existing:
+        return new or {}
+    if not new:
+        return existing
+    out: Dict[str, Any] = dict(existing)
+    for k, v in new.items():
+        if k.startswith("_"):  # _parse_failed 등 메타 키
+            out[k] = v
+            continue
+        if k not in out or out[k] is None or out[k] == "" or out[k] == []:
+            out[k] = v
+            continue
+        # 양쪽 다 값이 있을 때
+        ev = out[k]
+        if isinstance(ev, list) and isinstance(v, list):
+            # 합집합 (string 비교)
+            seen = set()
+            merged: list = []
+            for item in list(ev) + list(v):
+                key = item if isinstance(item, str) else str(item)
+                if key not in seen:
+                    seen.add(key)
+                    merged.append(item)
+            out[k] = merged
+        elif isinstance(ev, dict) and isinstance(v, dict):
+            out[k] = merge_analysis(ev, v)
+        else:
+            # 문자열 등: 기존 보존 (사용자 편집 보호)
+            # 단 기존이 너무 짧고 새 값이 더 길면 새 값 채택
+            if isinstance(ev, str) and isinstance(v, str) and len(v) > len(ev) * 1.5:
+                out[k] = v
+            # else: keep existing
+    return out
 
 
 def truncate_transcript_if_needed(text: str, max_chars: int) -> str:

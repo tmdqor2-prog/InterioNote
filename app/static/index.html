@@ -202,8 +202,8 @@
       </a>
     </section>
 
-    <!-- 첫 화면: 신규 vs 기존 선택 -->
-    <section class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
+    <!-- 첫 화면: 신규 vs 기존 vs 외부 파일 -->
+    <section class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
       <!-- 새 고객 -->
       <button @click="startNewClient()"
         class="group bg-white hover:bg-blue-50 dark:bg-blue-900/30 border-2 border-dashed border-gray-300 dark:border-gray-600 hover:border-blue-400 rounded-2xl p-8 text-left transition">
@@ -235,6 +235,22 @@
         </p>
         <div class="mt-3 text-xs text-green-700 dark:text-green-300 font-medium opacity-0 group-hover:opacity-100 transition">
           → 목록에서 선택
+        </div>
+      </button>
+
+      <!-- v3.5.5: 외부 음성 파일에서 상담 만들기 -->
+      <button @click="openAudioImport()"
+        class="group bg-white hover:bg-purple-50 dark:bg-purple-900/30 border-2 border-dashed border-gray-300 dark:border-gray-600 hover:border-purple-400 rounded-2xl p-8 text-left transition">
+        <div class="flex items-center gap-3 mb-3">
+          <span class="text-3xl">🎙</span>
+          <h2 class="text-xl font-bold">외부 녹음으로 상담 만들기</h2>
+        </div>
+        <p class="text-sm text-gray-600 dark:text-gray-300 leading-relaxed">
+          iPhone 음성메모, 외부 녹음기 등에서 만든 mp3·m4a·wav 파일을 가져와서
+          새 상담으로 등록합니다. 그 후 데스크톱에서 재전사·AI 분석.
+        </p>
+        <div class="mt-3 text-xs text-purple-700 dark:text-purple-300 font-medium opacity-0 group-hover:opacity-100 transition">
+          → 파일 선택
         </div>
       </button>
     </section>
@@ -871,6 +887,77 @@
   </div>
 
   <!-- ========================================
+       v3.5.5: 외부 음성 파일 임포트 모달
+       ======================================== -->
+  <div x-show="audioImport.show" x-cloak
+       @click.self="closeAudioImport()"
+       class="fixed inset-0 bg-black/50 flex items-center justify-center z-40 p-4">
+    <div class="bg-white dark:bg-gray-800 rounded-xl shadow-2xl max-w-lg w-full p-5 dark:text-gray-100">
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="font-bold text-lg flex items-center gap-2">
+          <span>🎙</span> 외부 음성 파일에서 상담 만들기
+        </h2>
+        <button @click="closeAudioImport()" class="text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 text-xl">×</button>
+      </div>
+      <p class="text-sm text-gray-600 dark:text-gray-400 mb-4">
+        iPhone 음성메모, 외부 녹음기 등에서 만든 파일을 선택하면
+        해당 고객의 상담기록 폴더로 자동 복사됩니다. 그 후 재전사·AI 분석 가능.
+      </p>
+      <!-- 파일 선택 -->
+      <div class="mb-3">
+        <div class="text-xs text-gray-500 dark:text-gray-400 mb-1">음성 파일 (mp3 / m4a / wav / ogg / opus / aac / flac)</div>
+        <div class="flex gap-2">
+          <input x-model="audioImport.path" type="text"
+                 placeholder="예: C:\Users\tmdqo\Downloads\녹음.m4a"
+                 class="flex-1 text-sm border border-gray-300 dark:border-gray-600 rounded px-3 py-2 bg-white dark:bg-gray-700 dark:text-gray-100 font-mono"/>
+          <button @click="pickAudioFile()"
+                  class="text-sm bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 px-3 py-2 rounded hover:bg-gray-200 dark:hover:bg-gray-600 whitespace-nowrap">📁 파일 선택</button>
+        </div>
+      </div>
+      <!-- 고객 -->
+      <div class="mb-3">
+        <div class="text-xs text-gray-500 dark:text-gray-400 mb-1">고객 (기존 등록된 고객 중 선택)</div>
+        <select x-model="audioImport.clientFolderName"
+                class="w-full text-sm border border-gray-300 dark:border-gray-600 rounded px-3 py-2 bg-white dark:bg-gray-700 dark:text-gray-100">
+          <option value="">-- 고객 선택 --</option>
+          <template x-for="c in clients" :key="c.client_id">
+            <option :value="c.folder_name" x-text="c.name + ' (' + (c.descriptor || '') + ')'"></option>
+          </template>
+        </select>
+        <div class="text-[11px] text-gray-400 mt-1">
+          신규 고객은 먼저 위 "✨ 새 고객 상담 시작" 으로 등록하세요.
+        </div>
+      </div>
+      <!-- 상담 종류 -->
+      <div class="mb-3">
+        <div class="text-xs text-gray-500 dark:text-gray-400 mb-1">상담 종류</div>
+        <div class="flex gap-2">
+          <template x-for="t in ['초도상담','디자인미팅','견적미팅']" :key="t">
+            <button @click="audioImport.meetingType = t"
+                    :class="audioImport.meetingType === t ? 'bg-purple-600 text-white border-purple-600' : 'border-gray-300 dark:border-gray-600 hover:border-purple-400'"
+                    class="text-sm flex-1 px-3 py-2 border rounded transition" x-text="t"></button>
+          </template>
+        </div>
+      </div>
+      <!-- 시작 시각 (선택) -->
+      <div class="mb-3">
+        <div class="text-xs text-gray-500 dark:text-gray-400 mb-1">시작 시각 (비워두면 파일 수정 시각 자동 사용)</div>
+        <input x-model="audioImport.startedAt" type="datetime-local"
+               class="w-full text-sm border border-gray-300 dark:border-gray-600 rounded px-3 py-2 bg-white dark:bg-gray-700 dark:text-gray-100"/>
+      </div>
+      <div x-show="audioImport.error" x-cloak class="text-sm text-red-600 dark:text-red-400 mb-3" x-text="audioImport.error"></div>
+      <div class="flex justify-end gap-2">
+        <button @click="closeAudioImport()" class="px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-700">취소</button>
+        <button @click="confirmAudioImport()" :disabled="audioImport.busy || !audioImport.path || !audioImport.clientFolderName"
+                class="px-4 py-1.5 text-sm bg-purple-600 hover:bg-purple-700 text-white rounded font-medium disabled:opacity-50">
+          <span x-show="!audioImport.busy">🎙 상담 만들기</span>
+          <span x-show="audioImport.busy" x-cloak>처리 중...</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========================================
        신규 고객 생성 모달
        ======================================== -->
   <div x-show="showNewClientModal" x-cloak
@@ -1163,6 +1250,17 @@ function homePage() {
     sortBy: 'recent',  // v2.5.0 J: 'recent' | 'name' | 'meetings'
     filterStage: '',   // v3.0.0: 단계 필터 '' = 전체
     stages: [],        // v3.0.0: API 에서 채워짐
+
+    // --- v3.5.5: 외부 음성 파일 임포트 모달 ---
+    audioImport: {
+      show: false,
+      path: '',
+      clientFolderName: '',
+      meetingType: '초도상담',
+      startedAt: '',
+      busy: false,
+      error: '',
+    },
 
     // --- 신규 고객 모달 ---
     showNewClientModal: false,
@@ -1608,6 +1706,57 @@ function homePage() {
 
     openPicker() {
       alert('아래 고객 목록에서 선택하시면 됩니다.');
+    },
+
+    // --- v3.5.5: 외부 음성 파일 임포트 ---
+    openAudioImport() {
+      this.audioImport.show = true;
+      this.audioImport.path = '';
+      this.audioImport.clientFolderName = '';
+      this.audioImport.meetingType = '초도상담';
+      this.audioImport.startedAt = '';
+      this.audioImport.error = '';
+      this.audioImport.busy = false;
+    },
+    closeAudioImport() { this.audioImport.show = false; },
+    async pickAudioFile() {
+      try {
+        if (!window.pywebview || !window.pywebview.api || !window.pywebview.api.pick_audio_file) {
+          // pick_audio_file 이 JS bridge 에 없으면 일반 텍스트 입력으로 안내
+          alert('현재 버전에서는 파일 경로를 직접 입력하세요. 다음 빌드에서 파일 선택 다이얼로그가 추가됩니다.');
+          return;
+        }
+        const r = await window.pywebview.api.pick_audio_file();
+        if (r) this.audioImport.path = r;
+      } catch(e) { this.audioImport.error = '파일 선택 실패: ' + e; }
+    },
+    async confirmAudioImport() {
+      const a = this.audioImport;
+      if (!a.path || !a.clientFolderName) {
+        a.error = '파일과 고객을 모두 선택하세요.';
+        return;
+      }
+      a.busy = true;
+      a.error = '';
+      try {
+        const r = await fetch('/api/import/audio-file', {
+          method: 'POST',
+          headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({
+            audio_path: a.path,
+            client_folder_name: a.clientFolderName,
+            meeting_type: a.meetingType,
+            started_at: a.startedAt || null,
+          }),
+        });
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.detail || '임포트 실패');
+        // 성공 → 그 상담의 view-mode 화면으로 이동 (재전사 가능)
+        this.closeAudioImport();
+        window.location.href = '/live?m=' + d.meeting_id;
+      } catch(e) {
+        a.error = e.message || String(e);
+      } finally { a.busy = false; }
     },
 
     // --- 신규 고객 생성 플로우 ---

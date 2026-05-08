@@ -223,13 +223,22 @@ def analyze_meeting(meeting_id: int, username: Optional[str] = None) -> Dict[str
     )
 
     # 3) 프롬프트 빌드 (v3.0.0 Phase 3: 추가 분석 항목 주입)
+    # v3.5.5: 기존 분석이 있으면 보존·보강 모드로 prompt 구성
     extra_items = settings_service.get_analysis_extra_items(meeting["meeting_type"])
+    existing_analysis_data = None
+    try:
+        prev = get_existing_analysis(meeting_id)
+        if prev and prev.get("data"):
+            existing_analysis_data = prev["data"]
+    except Exception:
+        pass
     prompt = analysis_prompts.build_prompt(
         meeting_type=meeting["meeting_type"],
         transcript_text=transcript,
         client_name=meeting.get("client_name"),
         client_descriptor=meeting.get("client_descriptor"),
         extra_items=extra_items if extra_items else None,
+        existing_analysis=existing_analysis_data,
     )
 
     # 4) 상태 표시
@@ -297,6 +306,15 @@ def analyze_meeting(meeting_id: int, username: Optional[str] = None) -> Dict[str
             "raw_response": raw_text[:20000],  # 용량 보호
             "summary": "(AI 응답이 JSON 형식이 아니었습니다. 아래 원문을 확인하세요.)",
         }
+
+    # v3.5.5: 기존 분석이 있었으면 보존·보강 모드로 merge
+    # AI 가 재분석할 때 이미 채워진 정보·사용자 편집 내용이 손실되지 않게.
+    if existing_analysis_data and parse_ok:
+        try:
+            data = analysis_prompts.merge_analysis(existing_analysis_data, data)
+            data["_merged_from_existing"] = True
+        except Exception as e:
+            log.warning(f"merge_analysis 실패 — 신규 데이터만 사용: {e}")
 
     # v3.5.4: 중국어 경고가 있으면 summary 맨 앞에 prepend (사용자가 즉시 인지)
     if chinese_warning:

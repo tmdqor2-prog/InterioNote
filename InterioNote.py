@@ -276,6 +276,30 @@ def main() -> int:
                 log.error(f"pick_file 실패: {type(e).__name__}: {e}")
                 return {"error": f"{type(e).__name__}: {e}"}
 
+        def pick_audio_file(self, initial_dir: str = ""):
+            """v3.5.5: 외부 음성 파일 선택 (mp3 / m4a / wav 등)."""
+            try:
+                w = self._window
+                if w is None:
+                    return {"error": "윈도우 핸들이 아직 준비되지 않았습니다."}
+                file_types = (
+                    "음성 파일 (*.mp3;*.m4a;*.wav;*.ogg;*.opus;*.aac;*.flac;*.webm)",
+                    "All files (*.*)",
+                )
+                kwargs = {"file_types": file_types}
+                if initial_dir and Path(initial_dir).exists():
+                    kwargs["directory"] = initial_dir
+                paths = w.create_file_dialog(
+                    webview.OPEN_DIALOG, allow_multiple=False, **kwargs,
+                )
+                if not paths:
+                    return ""
+                first = paths[0] if isinstance(paths, (list, tuple)) else paths
+                return str(first)
+            except Exception as e:
+                log.error(f"pick_audio_file 실패: {type(e).__name__}: {e}")
+                return {"error": f"{type(e).__name__}: {e}"}
+
         def open_in_explorer(self, path: str):
             """탐색기에서 폴더 또는 파일 위치 열기 (Phase 7B-3)."""
             try:
