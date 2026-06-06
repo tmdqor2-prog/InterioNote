@@ -165,6 +165,9 @@ def recording_start(req: StartRequest):
 
 @router.post("/recording/stop")
 def recording_stop():
+    """녹음 종료 → 즉시 반환. 마감(MP3·파일 저장) 은 백그라운드 thread.
+    클라이언트는 finalize-status 폴링으로 진행 확인.
+    """
     if live_session.get_active() is None:
         raise HTTPException(404, "진행 중인 녹음이 없습니다.")
     try:
@@ -172,32 +175,36 @@ def recording_stop():
     except Exception as e:
         raise HTTPException(500, _describe_exc("recording_stop", e))
 
-    # Phase 3C: meeting 에 연결된 녹음이면 최종 폴더로 이동 + MP3 + MD + JSON
     meeting_id = result.get("meeting_id")
     if meeting_id is not None:
         try:
-            finalized = meeting_finalizer.finalize_meeting(
-                meeting_id,
-                result,
-                app_version="2.0.0",
+            from app.services import finalize_background
+            from app import config
+            bg = finalize_background.start_background_finalize(
+                meeting_id, result, app_version=config.APP_VERSION,
             )
-            # 요약 필드를 합쳐서 UI 로 반환
-            result["finalized"] = finalized
-            result["meeting_folder"] = finalized["meeting_folder"]
-            result["mp3_path"] = finalized["mp3_path"]
-            result["mp3_size_bytes"] = finalized.get("mp3_size_bytes")
-            result["markdown_path"] = finalized["markdown_path"]
-            result["info_json_path"] = finalized["info_json_path"]
-            result["status"] = finalized["status"]
-            # DB 에서 다시 불러온 세그먼트 (DB id 포함) 로 교체
-            if finalized.get("segments") is not None:
-                result["segments"] = finalized["segments"]
-                result["segments_count"] = finalized.get("segments_count", len(finalized["segments"]))
+            result["finalize_background"] = bg
+            result["status"] = "finalizing"  # UI 가 폴링 시작
         except Exception as e:
-            # 마감 실패는 녹음 자체는 성공했으므로 500 이 아니라 부분 성공 응답
-            result["finalize_error"] = _describe_exc("finalize_meeting", e)
+            result["finalize_error"] = _describe_exc("start_background_finalize", e)
             result["status"] = "failed"
     return result
+
+
+# ----------------------------------------
+# v3.5.7: 마감 백그라운드 상태 조회
+# ----------------------------------------
+@router.get("/meetings/{meeting_id}/finalize-status")
+def get_finalize_status(meeting_id: int):
+    from app.services import finalize_background
+    return finalize_background.get_status(meeting_id)
+
+
+@router.get("/finalize/active")
+def list_active_finalize():
+    """헤더 배지용 — 현재 진행 중인 마감 작업들."""
+    from app.services import finalize_background
+    return {"active": finalize_background.list_active_jobs()}
 
 
 # ----------------------------------------

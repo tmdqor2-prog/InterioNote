@@ -19,7 +19,7 @@ from typing import Any, Dict, Optional
 
 from app import config
 from app.db import db_cursor
-from app.services import meeting_finalizer
+from app.services import meeting_finalizer, settings_service
 from app.utils import folder_template
 
 SUPPORTED_EXT = {".mp3", ".m4a", ".wav", ".ogg", ".opus", ".aac", ".flac", ".webm"}
@@ -62,8 +62,28 @@ def import_audio_file(
             raise ValueError(f"고객 '{client_folder_name}' 을 찾을 수 없습니다. 먼저 고객을 등록하세요.")
         client_id = client_row["id"]
         client_folder = Path(client_row["folder_path"])
-        if not client_folder.exists():
-            raise ValueError(f"고객 폴더가 디스크에 없습니다: {client_folder}")
+
+    # v3.5.7: DB 의 folder_path 가 옛 경로(다른 PC·이전 설정)면 현재 client_root 로 자동 재구성
+    if not client_folder.exists():
+        try:
+            current_root = Path(settings_service.get_client_root())
+        except Exception:
+            current_root = None
+        fallback = (current_root / client_folder_name) if current_root else None
+        if fallback and fallback.exists():
+            client_folder = fallback
+            # DB 도 즉시 갱신해서 다음부터 자동
+            with db_cursor() as cur:
+                cur.execute(
+                    "UPDATE clients SET folder_path = ? WHERE id = ?",
+                    (str(client_folder), client_id),
+                )
+        else:
+            raise ValueError(
+                f"고객 폴더가 디스크에 없습니다: {client_row['folder_path']}\n"
+                f"현재 설정의 client_root 기준 시도 경로: {fallback}\n"
+                "→ 설정 → 사용자 폴더 → '🔧 모든 상담 경로를 현재 폴더에 맞게 갱신' 을 먼저 실행해 주세요."
+            )
 
     # 2) started_at 결정
     if started_at:

@@ -401,3 +401,18 @@ def generate_email_draft(meeting_id: int, req: EmailDraftRequest, request: Reque
     body = lines[1].strip() if len(lines) > 1 else draft
 
     return {"ok": True, "subject": subject_line, "body": body, "full": draft}
+
+
+# ========================================
+# v3.5.7: AI 견적 초안 자동 생성
+# ========================================
+@router.post("/api/meetings/{meeting_id}/quote-draft")
+def generate_quote_draft(meeting_id: int, request: Request):
+    """상담 분석 결과 기반 AI 견적 초안 — 카테고리별 항목 + 예상 금액."""
+    from app.services import quote_draft_service
+    try:
+        return quote_draft_service.generate_quote_draft(meeting_id, username=_username(request))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except Exception as e:
+        raise HTTPException(500, _describe_exc("quote_draft", e))

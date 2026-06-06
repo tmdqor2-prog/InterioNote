@@ -383,6 +383,22 @@ class PersonalityManualRequest(BaseModel):
     profile: dict
 
 
+# ─── v3.5.7: 다음 미팅 자동 준비 ──────────────────────────────────────────────
+
+@router.post("/{client_id}/next-meeting-prep")
+def next_meeting_prep(client_id: int, request: Request):
+    """고객의 모든 분석 결과 종합 → 다음 미팅 의제·준비물·추천 질문."""
+    from app.services import next_meeting_prep_service
+    user = getattr(request.state, "user", None)
+    username = user.get("sub") if user else None
+    try:
+        return next_meeting_prep_service.prepare_next_meeting(client_id, username=username)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except Exception as e:
+        raise HTTPException(500, f"{type(e).__name__}: {str(e)[:300]}")
+
+
 @router.patch("/{client_id}/personality-manual")
 def update_personality_manual(client_id: int, req: PersonalityManualRequest):
     """성향 프로파일 수기 편집 저장 (personality 키만 갱신, 나머지 custom_fields 보존)."""

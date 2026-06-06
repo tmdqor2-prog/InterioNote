@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>영업 대시보드 · InterioNote</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = { darkMode: 'class' };
+    (function() {
+      try {
+        var t = localStorage.getItem('interionote.theme') || 'system';
+        var dark = (t === 'dark') ||
+          (t === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+        if (dark) document.documentElement.classList.add('dark');
+      } catch(e) {}
+    })();
+  </script>
+  <!-- 인증 -->
+  <script>
+  (function(){
+    var _origFetch = window.fetch.bind(window);
+    window.fetch = async function(resource, opts){
+      opts = opts ? Object.assign({}, opts) : {};
+      if (typeof resource === 'string' && resource.startsWith('/api/')) {
+        var tok = localStorage.getItem('interionote.token');
+        if (tok) opts.headers = Object.assign({'Authorization': 'Bearer ' + tok}, opts.headers || {});
+      }
+      var r = await _origFetch(resource, opts);
+      if (r.status === 401 && window.location.pathname !== '/login') {
+        localStorage.removeItem('interionote.token');
+        localStorage.removeItem('interionote.user');
+        window.location.replace('/login');
+      }
+      return r;
+    };
+    if (window.location.pathname !== '/login') {
+      var tok = localStorage.getItem('interionote.token');
+      if (!tok) { window.location.replace('/login'); return; }
+    }
+  })();
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script defer src="https://unpkg.com/alpinejs@3.14.1/dist/cdn.min.js"></script>
+  <style>
+    body { font-family: 'Segoe UI', 'Malgun Gothic', system-ui, sans-serif; }
+    [x-cloak] { display: none !important; }
+  </style>
+</head>
+<body class="bg-gray-50 dark:bg-gray-900 dark:text-gray-100">
+<div x-data="salesPage()" x-init="init()" class="min-h-screen">
+
+  <!-- Header -->
+  <header class="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
+    <div class="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
+      <div class="flex items-center gap-2">
+        <a href="/" class="text-sm text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200">← 홈</a>
+        <h1 class="text-lg font-bold ml-3">📊 영업 대시보드</h1>
+      </div>
+      <button @click="load()" class="text-sm bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded">🔄 새로고침</button>
+    </div>
+  </header>
+
+  <main class="max-w-7xl mx-auto px-4 py-6 space-y-5">
+    <!-- 요약 카드 4개 -->
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+      <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
+        <div class="text-xs text-gray-500 dark:text-gray-400">총 고객</div>
+        <div class="text-3xl font-bold mt-1" x-text="(data.summary?.total_clients ?? 0)"></div>
+      </div>
+      <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
+        <div class="text-xs text-gray-500 dark:text-gray-400">계약 건수</div>
+        <div class="text-3xl font-bold mt-1 text-emerald-600 dark:text-emerald-400" x-text="(data.summary?.total_contracts ?? 0)"></div>
+      </div>
+      <div class="bg-gradient-to-br from-amber-50 to-orange-50 dark:from-amber-900/30 dark:to-orange-900/30 border border-amber-200 dark:border-amber-700 rounded-xl p-4">
+        <div class="text-xs text-amber-700 dark:text-amber-300">총 매출</div>
+        <div class="text-2xl font-bold mt-1 text-amber-900 dark:text-amber-200" x-text="formatMoney(data.summary?.total_revenue || 0)"></div>
+      </div>
+      <div class="bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-900/30 dark:to-indigo-900/30 border border-blue-200 dark:border-blue-700 rounded-xl p-4">
+        <div class="text-xs text-blue-700 dark:text-blue-300">평균 객단가</div>
+        <div class="text-2xl font-bold mt-1 text-blue-900 dark:text-blue-200" x-text="formatMoney(data.summary?.avg_deal_size || 0)"></div>
+      </div>
+    </div>
+
+    <!-- 월별 매출 추이 -->
+    <section class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-5">
+      <h2 class="font-semibold text-base mb-3">💰 월별 매출 추이</h2>
+      <div class="relative" style="height: 280px;">
+        <canvas id="monthlyChart"></canvas>
+      </div>
+      <div x-show="(data.monthly_revenue || []).length === 0" x-cloak class="text-sm text-gray-400 dark:text-gray-500 italic py-12 text-center">
+        아직 계약 데이터가 없습니다. 상담에서 계약 금액을 입력하면 표시됩니다.
+      </div>
+    </section>
+
+    <!-- 방문 경로별 분석 -->
+    <section class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-5">
+      <h2 class="font-semibold text-base mb-3">🔍 방문 경로별 분석</h2>
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+          <thead>
+            <tr class="text-xs text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-gray-700">
+              <th class="text-left py-2">방문 경로</th>
+              <th class="text-right">고객 수</th>
+              <th class="text-right">계약 수</th>
+              <th class="text-right">전환율</th>
+              <th class="text-right">총 매출</th>
+              <th class="text-right">평균 객단가</th>
+            </tr>
+          </thead>
+          <tbody>
+            <template x-for="s in (data.by_source || [])" :key="s.source">
+              <tr class="border-b border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/30">
+                <td class="py-2 font-medium" x-text="s.source"></td>
+                <td class="text-right" x-text="s.total_clients"></td>
+                <td class="text-right text-emerald-600 dark:text-emerald-400" x-text="s.contracted"></td>
+                <td class="text-right">
+                  <span class="px-2 py-0.5 rounded text-xs font-medium"
+                        :class="s.conversion_rate >= 50 ? 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300' :
+                                s.conversion_rate >= 25 ? 'bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300' :
+                                'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300'"
+                        x-text="s.conversion_rate + '%'"></span>
+                </td>
+                <td class="text-right text-amber-700 dark:text-amber-300" x-text="formatMoney(s.total_revenue)"></td>
+                <td class="text-right" x-text="formatMoney(s.avg_revenue)"></td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- 단계 퍼널 + 상위 고객 -->
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <section class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-5">
+        <h2 class="font-semibold text-base mb-3">📊 계약 단계 퍼널</h2>
+        <div class="space-y-1.5">
+          <template x-for="f in (data.funnel || [])" :key="f.stage">
+            <div>
+              <div class="flex items-center justify-between text-xs mb-0.5">
+                <span class="font-medium" x-text="f.stage"></span>
+                <span class="text-gray-500 dark:text-gray-400" x-text="f.count + '명 (' + f.rate + '%)'"></span>
+              </div>
+              <div class="h-6 bg-gray-100 dark:bg-gray-700 rounded overflow-hidden">
+                <div class="h-full bg-gradient-to-r from-blue-400 to-blue-600 dark:from-blue-500 dark:to-blue-700"
+                     :style="'width: ' + f.rate + '%'"></div>
+              </div>
+            </div>
+          </template>
+        </div>
+      </section>
+
+      <section class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-5">
+        <h2 class="font-semibold text-base mb-3">🏆 상위 매출 고객 TOP 10</h2>
+        <div class="space-y-1">
+          <template x-for="(c, i) in (data.top_clients_by_revenue || [])" :key="c.client_id">
+            <a :href="'/customer?id=' + c.client_id" class="flex items-center justify-between text-sm py-1.5 px-2 rounded hover:bg-gray-50 dark:hover:bg-gray-700/30">
+              <div class="flex items-center gap-2">
+                <span class="text-xs text-gray-400 dark:text-gray-500 font-mono w-5" x-text="(i+1) + '.'"></span>
+                <span class="font-medium" x-text="c.name"></span>
+              </div>
+              <span class="text-amber-700 dark:text-amber-300 font-medium" x-text="formatMoney(c.revenue)"></span>
+            </a>
+          </template>
+          <div x-show="(data.top_clients_by_revenue || []).length === 0" x-cloak class="text-sm text-gray-400 italic">
+            아직 계약 데이터가 없습니다.
+          </div>
+        </div>
+      </section>
+    </div>
+  </main>
+</div>
+
+<script>
+function salesPage() {
+  return {
+    data: {},
+    _chart: null,
+    async init() { await this.load(); },
+    async load() {
+      try {
+        const r = await fetch('/api/sales/dashboard');
+        if (!r.ok) throw new Error('데이터 로드 실패');
+        this.data = await r.json();
+        this.$nextTick(() => this.drawChart());
+      } catch(e) { alert(e.message || e); }
+    },
+    drawChart() {
+      const ctx = document.getElementById('monthlyChart');
+      if (!ctx) return;
+      if (this._chart) this._chart.destroy();
+      const monthly = this.data.monthly_revenue || [];
+      const isDark = document.documentElement.classList.contains('dark');
+      this._chart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: monthly.map(m => m.month),
+          datasets: [
+            {
+              label: '매출 (만원)',
+              data: monthly.map(m => Math.round((m.revenue || 0) / 10000)),
+              backgroundColor: '#f59e0b',
+              yAxisID: 'y',
+            },
+            {
+              label: '계약 건수',
+              data: monthly.map(m => m.contracts),
+              type: 'line',
+              borderColor: '#3b82f6',
+              backgroundColor: '#3b82f6',
+              yAxisID: 'y1',
+              tension: 0.3,
+            },
+          ],
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          scales: {
+            y: {
+              type: 'linear',
+              position: 'left',
+              title: { display: true, text: '매출 (만원)', color: isDark ? '#cbd5e1' : '#475569' },
+              ticks: { color: isDark ? '#94a3b8' : '#64748b' },
+              grid: { color: isDark ? '#1e293b' : '#e2e8f0' },
+            },
+            y1: {
+              type: 'linear',
+              position: 'right',
+              title: { display: true, text: '계약 건수', color: isDark ? '#cbd5e1' : '#475569' },
+              grid: { drawOnChartArea: false },
+              ticks: { color: isDark ? '#94a3b8' : '#64748b' },
+            },
+            x: {
+              ticks: { color: isDark ? '#94a3b8' : '#64748b' },
+              grid: { color: isDark ? '#1e293b' : '#e2e8f0' },
+            },
+          },
+          plugins: {
+            legend: { labels: { color: isDark ? '#e2e8f0' : '#1e293b' } },
+          },
+        },
+      });
+    },
+    formatMoney(v) {
+      if (!v) return '0원';
+      const n = Number(v);
+      if (n >= 100000000) return (n / 100000000).toFixed(1) + '억';
+      if (n >= 10000) return (n / 10000).toFixed(0) + '만원';
+      return n.toLocaleString() + '원';
+    },
+  };
+}
+</script>
+  <script src="/static/remote_status_badge.js"></script>
+  <script src="/static/finalize_badge.js"></script>
+</body>
+</html>

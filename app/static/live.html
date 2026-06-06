@@ -530,6 +530,20 @@
           <span x-show="!viewMode">✅ 녹음 완료</span>
           <span x-show="viewMode" x-cloak>📂 이전 상담 보기</span>
         </h2>
+        <!-- v3.5.7: 마감 백그라운드 진행 표시 -->
+        <div x-show="finalizing" x-cloak
+             class="bg-amber-50 dark:bg-amber-900/30 border border-amber-300 dark:border-amber-700 rounded p-2 mb-2 flex items-center gap-2 text-sm">
+          <span class="inline-block w-3 h-3 border-2 border-amber-500 border-t-transparent rounded-full animate-spin"></span>
+          <span class="text-amber-900 dark:text-amber-200">
+            🔄 마감 작업 진행 중 (MP3 인코딩·파일 저장) — 다른 작업 자유롭게 진행해도 됩니다.
+          </span>
+        </div>
+        <div x-show="finalizeError" x-cloak
+             class="bg-red-50 dark:bg-red-900/30 border border-red-300 dark:border-red-700 rounded p-2 mb-2 text-sm">
+          <span class="text-red-900 dark:text-red-200">
+            ❌ 마감 실패: <span x-text="finalizeError"></span>
+          </span>
+        </div>
         <div class="text-sm space-y-1"
              :class="viewMode ? 'text-blue-900 dark:text-blue-200' : 'text-green-900'">
           <div x-show="finalResult.started_at">
@@ -1119,6 +1133,14 @@
                         title="전체 분석 결과를 클립보드에 복사 (카톡/메일에 붙여넣기)">
                   📋 전체 복사
                 </button>
+                <!-- v3.5.7: AI 견적 초안 -->
+                <button @click="generateQuoteDraft()"
+                        :disabled="quoteDraft.busy"
+                        class="text-[11px] bg-amber-50 dark:bg-amber-900/20 border border-amber-300 dark:border-amber-700 hover:bg-amber-100 dark:hover:bg-amber-900/40 text-amber-800 dark:text-amber-200 px-2 py-0.5 rounded transition disabled:opacity-50"
+                        title="분석 결과 기반 AI 견적 초안 생성">
+                  <span x-show="!quoteDraft.busy">💰 견적 초안</span>
+                  <span x-show="quoteDraft.busy" x-cloak>⏳ 생성 중...</span>
+                </button>
                 <span x-show="analysisEditState === 'saving'" x-cloak class="text-amber-700 dark:text-amber-300">⏳ 저장 중...</span>
                 <span x-show="analysisEditState === 'saved'" x-cloak class="text-emerald-700 dark:text-emerald-300">✅ 저장됨</span>
                 <span x-show="analysisEditState === 'error'" x-cloak class="text-red-700"
@@ -1420,6 +1442,59 @@
     </section>
 
   </main>
+
+  <!-- v3.5.7: AI 견적 초안 모달 -->
+  <div x-show="quoteDraft.show" x-cloak
+       @click.self="quoteDraft.show=false"
+       class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+    <div class="bg-white dark:bg-gray-800 rounded-xl shadow-2xl max-w-2xl w-full max-h-[85vh] overflow-y-auto p-5 dark:text-gray-100">
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="font-bold text-lg flex items-center gap-2">
+          <span>💰</span> AI 견적 초안
+        </h2>
+        <div class="flex gap-2 items-center">
+          <button @click="copyQuoteDraft()" class="text-xs bg-emerald-50 dark:bg-emerald-900/30 border border-emerald-300 dark:border-emerald-700 hover:bg-emerald-100 text-emerald-800 dark:text-emerald-200 px-2 py-1 rounded">📋 전체 복사</button>
+          <button @click="quoteDraft.show=false" class="text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 text-xl">×</button>
+        </div>
+      </div>
+      <div x-show="quoteDraft.error" x-cloak class="bg-red-50 dark:bg-red-900/20 text-red-800 dark:text-red-200 p-2 rounded text-sm mb-3" x-text="quoteDraft.error"></div>
+      <template x-if="quoteDraft.data">
+        <div>
+          <div class="bg-amber-50 dark:bg-amber-900/30 border border-amber-300 dark:border-amber-700 rounded-lg p-3 mb-3">
+            <div class="text-xs text-amber-700 dark:text-amber-300 mb-1">총 예상 금액 (기준: <span x-text="quoteDraft.data.size_pyeong"></span>)</div>
+            <div class="text-2xl font-bold text-amber-900 dark:text-amber-100" x-text="quoteDraft.data.total_estimate"></div>
+            <div class="text-xs text-amber-800 dark:text-amber-200 mt-1" x-text="quoteDraft.data.scope_summary"></div>
+          </div>
+          <div class="space-y-1.5">
+            <div class="text-xs font-semibold text-gray-500 dark:text-gray-400">📋 항목별 견적</div>
+            <template x-for="(it, i) in (quoteDraft.data.items || [])" :key="i">
+              <div class="flex items-start gap-2 bg-gray-50 dark:bg-gray-700 rounded p-2 text-sm">
+                <div class="text-xs bg-amber-200 dark:bg-amber-800 text-amber-900 dark:text-amber-100 px-2 py-0.5 rounded shrink-0" x-text="it.category"></div>
+                <div class="flex-1 min-w-0">
+                  <div class="text-gray-800 dark:text-gray-100" x-text="it.scope"></div>
+                  <div x-show="it.note" class="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5" x-text="it.note"></div>
+                </div>
+                <div class="text-sm font-semibold text-amber-700 dark:text-amber-300 shrink-0" x-text="it.estimated_price"></div>
+              </div>
+            </template>
+          </div>
+          <div x-show="quoteDraft.data.assumptions && quoteDraft.data.assumptions.length" x-cloak class="mt-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded p-2 text-xs">
+            <div class="font-semibold text-blue-800 dark:text-blue-300 mb-1">📝 견적 산출 가정</div>
+            <ul class="list-disc pl-5 space-y-0.5 text-blue-700 dark:text-blue-300">
+              <template x-for="a in quoteDraft.data.assumptions" :key="a">
+                <li x-text="a"></li>
+              </template>
+            </ul>
+          </div>
+          <div x-show="quoteDraft.data.variability_note" x-cloak class="mt-2 text-xs text-gray-500 dark:text-gray-400 italic" x-text="'⚠ ' + quoteDraft.data.variability_note"></div>
+        </div>
+      </template>
+      <div class="mt-3 text-[11px] text-gray-400 dark:text-gray-500">
+        ⚠ AI 가 추정한 금액입니다. 실제 견적은 현장 상황·자재 선택에 따라 달라집니다.
+        <span x-show="quoteDraft.data && quoteDraft.data._used_endpoint === 'remote'">🖥 데스크톱 GPU 사용</span>
+      </div>
+    </div>
+  </div>
 
   <!-- v3.5.4: 카드 분할 모달 -->
   <div x-show="splitModal.show" x-cloak
@@ -2095,6 +2170,15 @@ function livePage() {
     // renderableSections 메모이제이션 (analysis 객체가 바뀔 때만 재계산)
     _renderableSectionsCache: null,
     _analysisCacheKey: '',
+
+    // v3.5.7: 마감 백그라운드 상태
+    finalizing: false,
+    finalizeState: '',     // 'running' | 'completed' | 'failed'
+    finalizeStage: '',     // 'starting' | 'encoding_mp3' | 'done' | 'error'
+    finalizeError: '',
+
+    // v3.5.7: AI 견적 초안
+    quoteDraft: { show: false, busy: false, data: null, error: '' },
 
     // v3.5.4: 카드 분할 모달 상태
     splitModal: {
@@ -3041,6 +3125,11 @@ function livePage() {
         this.finalResult = await r.json();
         this.disconnectWS();
         this.mode = 'finished';
+        // v3.5.7: 마감 작업이 백그라운드로 동작 — 상태 폴링 시작
+        if (this.finalResult.finalize_background) {
+          this.finalizing = true;
+          this._pollFinalizeStatus();
+        }
         // Phase 4: 기존 분석이 있으면 불러오기
         if (this.meetingId) this.loadExistingAnalysis();
         // Phase 8B+: 이전 재전사 스냅샷이 있는지 (다시 열린 상담의 경우)
@@ -3060,6 +3149,90 @@ function livePage() {
       } finally {
         this.stopping = false;
       }
+    },
+
+    // v3.5.7: 마감 백그라운드 폴링
+    async _pollFinalizeStatus() {
+      if (!this.meetingId) return;
+      const poll = async () => {
+        try {
+          const r = await fetch('/api/meetings/' + this.meetingId + '/finalize-status');
+          if (!r.ok) return;
+          const s = await r.json();
+          this.finalizeState = s.state;
+          this.finalizeStage = s.stage;
+          if (s.state === 'completed') {
+            this.finalizing = false;
+            // 결과를 finalResult 에 머지
+            if (s.result) {
+              Object.assign(this.finalResult, {
+                meeting_folder: s.result.meeting_folder,
+                mp3_path: s.result.mp3_path,
+                markdown_path: s.result.markdown_path,
+                info_json_path: s.result.info_json_path,
+                status: s.result.status,
+                segments: s.result.segments || this.finalResult.segments,
+              });
+            }
+            return;
+          }
+          if (s.state === 'failed') {
+            this.finalizing = false;
+            this.finalizeError = s.error || '알 수 없는 오류';
+            return;
+          }
+          // 계속 폴링 (2초 간격)
+          setTimeout(poll, 2000);
+        } catch(e) {
+          setTimeout(poll, 5000);
+        }
+      };
+      poll();
+    },
+
+    // v3.5.7: AI 견적 초안
+    async generateQuoteDraft() {
+      if (!this.meetingId) { alert('상담 정보 없음'); return; }
+      if (!this.analysis) { alert('먼저 AI 분석을 실행해 주세요.'); return; }
+      this.quoteDraft.busy = true;
+      this.quoteDraft.error = '';
+      try {
+        const r = await fetch('/api/meetings/' + this.meetingId + '/quote-draft', {method: 'POST'});
+        const d = await r.json();
+        if (!r.ok || !d.ok) throw new Error(d.detail || d.error || '생성 실패');
+        const draft = d.draft || {};
+        draft._used_endpoint = d.used_endpoint;
+        this.quoteDraft.data = draft;
+        this.quoteDraft.show = true;
+      } catch(e) {
+        this.quoteDraft.error = e.message || String(e);
+        this.quoteDraft.show = true;
+      } finally {
+        this.quoteDraft.busy = false;
+      }
+    },
+    copyQuoteDraft() {
+      if (!this.quoteDraft.data) return;
+      const d = this.quoteDraft.data;
+      const lines = [
+        `💰 AI 견적 초안 (${d.size_pyeong})`,
+        `총 예상: ${d.total_estimate}`,
+        `${d.scope_summary}`,
+        '',
+        '📋 항목별:',
+      ];
+      for (const it of (d.items || [])) {
+        lines.push(`- ${it.category} / ${it.scope}: ${it.estimated_price}` + (it.note ? ` (${it.note})` : ''));
+      }
+      if (d.assumptions && d.assumptions.length) {
+        lines.push('', '📝 가정:');
+        for (const a of d.assumptions) lines.push(`- ${a}`);
+      }
+      if (d.variability_note) {
+        lines.push('', `⚠ ${d.variability_note}`);
+      }
+      lines.push('', '※ AI 추정 — 실제 견적은 현장·자재에 따라 달라집니다.');
+      navigator.clipboard.writeText(lines.join('\n')).then(() => alert('견적 초안이 클립보드에 복사됐습니다!'));
     },
 
     // ---------- Phase 4: AI 분석 ----------
@@ -3936,5 +4109,6 @@ function livePage() {
 }
 </script>
   <script src="/static/remote_status_badge.js"></script>
+  <script src="/static/finalize_badge.js"></script>
 </body>
 </html>

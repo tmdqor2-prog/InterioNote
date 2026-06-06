@@ -460,6 +460,73 @@
             <div x-show="data.aggregate_summary_at" x-cloak class="text-[11px] text-gray-400 dark:text-gray-500 mt-2" x-text="'마지막 갱신: ' + data.aggregate_summary_at"></div>
             <div x-show="aggregateError" x-cloak class="text-xs text-red-700 mt-2" x-text="aggregateError"></div>
           </div>
+
+          <!-- v3.5.7: 다음 미팅 자동 준비 -->
+          <div class="bg-gradient-to-br from-indigo-50 to-purple-50 dark:from-indigo-950/30 dark:to-purple-950/30 border border-indigo-200 dark:border-indigo-800 rounded-xl p-4">
+            <div class="flex items-center justify-between mb-2">
+              <div class="font-semibold flex items-center gap-2 dark:text-gray-100">
+                <span>🤖</span> 다음 미팅 자동 준비
+              </div>
+              <button @click="generateNextMeetingPrep()"
+                      :disabled="nextPrep.busy"
+                      class="text-xs px-2 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded disabled:opacity-50">
+                <span x-show="!nextPrep.busy">✨ 생성</span>
+                <span x-show="nextPrep.busy" x-cloak>⏳ 분석 중...</span>
+              </button>
+            </div>
+            <div x-show="!nextPrep.data && !nextPrep.busy" class="text-xs text-gray-500 dark:text-gray-400">
+              이전 상담을 종합해 다음 미팅 의제·준비물·추천 질문을 자동 생성.
+            </div>
+            <template x-if="nextPrep.data">
+              <div class="text-sm space-y-2 mt-2">
+                <div class="bg-white/70 dark:bg-gray-800/40 rounded p-2">
+                  <div class="text-[11px] text-gray-500 dark:text-gray-400 mb-0.5">다음 미팅 추천</div>
+                  <div class="font-semibold text-indigo-700 dark:text-indigo-300" x-text="nextPrep.data.next_meeting_type + ' · 약 ' + nextPrep.data.estimated_total_minutes + '분'"></div>
+                </div>
+                <div x-show="(nextPrep.data.agenda || []).length" x-cloak>
+                  <div class="text-[11px] font-semibold text-gray-600 dark:text-gray-300 mb-1">📋 의제</div>
+                  <template x-for="(a, i) in nextPrep.data.agenda" :key="i">
+                    <div class="flex items-start gap-2 text-xs bg-white/60 dark:bg-gray-800/30 rounded p-1.5 mb-1">
+                      <span class="px-1 py-0.5 text-[10px] rounded shrink-0"
+                            :class="a.priority === 'high' ? 'bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300' :
+                                    a.priority === 'medium' ? 'bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300' :
+                                    'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300'"
+                            x-text="a.priority"></span>
+                      <div class="flex-1 dark:text-gray-200">
+                        <div class="font-medium" x-text="a.topic"></div>
+                        <div class="text-[11px] text-gray-500 dark:text-gray-400" x-text="a.details + ' (' + a.expected_minutes + '분)'"></div>
+                      </div>
+                    </div>
+                  </template>
+                </div>
+                <div x-show="(nextPrep.data.preparation_items || []).length" x-cloak>
+                  <div class="text-[11px] font-semibold text-gray-600 dark:text-gray-300 mb-1">📦 준비물</div>
+                  <ul class="text-xs space-y-0.5 dark:text-gray-200">
+                    <template x-for="p in nextPrep.data.preparation_items" :key="p">
+                      <li>· <span x-text="p"></span></li>
+                    </template>
+                  </ul>
+                </div>
+                <div x-show="(nextPrep.data.recommended_questions || []).length" x-cloak>
+                  <div class="text-[11px] font-semibold text-gray-600 dark:text-gray-300 mb-1">❓ 추천 질문</div>
+                  <ul class="text-xs space-y-0.5 dark:text-gray-200">
+                    <template x-for="q in nextPrep.data.recommended_questions" :key="q">
+                      <li>💬 <span x-text="q"></span></li>
+                    </template>
+                  </ul>
+                </div>
+                <div x-show="nextPrep.data.follow_up_message_draft" x-cloak class="bg-emerald-50 dark:bg-emerald-900/20 rounded p-2 mt-2">
+                  <div class="flex items-center justify-between mb-1">
+                    <div class="text-[11px] font-semibold text-emerald-800 dark:text-emerald-300">💬 미팅 전 카톡 초안</div>
+                    <button @click="copyText(nextPrep.data.follow_up_message_draft)"
+                            class="text-[11px] text-emerald-700 hover:text-emerald-900 dark:text-emerald-300">📋 복사</button>
+                  </div>
+                  <div class="text-xs whitespace-pre-wrap dark:text-gray-200" x-text="nextPrep.data.follow_up_message_draft"></div>
+                </div>
+              </div>
+            </template>
+            <div x-show="nextPrep.error" x-cloak class="text-xs text-red-700 dark:text-red-300 mt-2" x-text="nextPrep.error"></div>
+          </div>
         </div>
 
         <!-- RIGHT (2칸): 일정 + 상담 타임라인 -->
@@ -663,6 +730,8 @@ function customer360(clientId) {
     data: null,
     aggregateState: 'idle',
     aggregateError: '',
+    // v3.5.7: 다음 미팅 자동 준비
+    nextPrep: { busy: false, data: null, error: '' },
 
     // v3.0.0: 연락처 편집
     editingContact: false,
@@ -821,6 +890,26 @@ function customer360(clientId) {
         const data = await r.json();
         if (this.data && this.data.client) this.data.client.is_favorite = data.is_favorite;
       } catch (e) { alert('실패: ' + e); }
+    },
+
+    // v3.5.7: 다음 미팅 준비 생성
+    async generateNextMeetingPrep() {
+      if (!this.clientId) return;
+      this.nextPrep.busy = true;
+      this.nextPrep.error = '';
+      try {
+        const r = await fetch('/api/clients/' + this.clientId + '/next-meeting-prep', {method: 'POST'});
+        const d = await r.json();
+        if (!r.ok || !d.ok) throw new Error(d.detail || d.error || '생성 실패');
+        this.nextPrep.data = d.prep;
+      } catch(e) {
+        this.nextPrep.error = e.message || String(e);
+      } finally {
+        this.nextPrep.busy = false;
+      }
+    },
+    copyText(t) {
+      navigator.clipboard.writeText(t).then(() => alert('복사됐습니다!'));
     },
 
     async regenerateAggregate() {
@@ -1238,5 +1327,6 @@ function customer360(clientId) {
 }
 </script>
   <script src="/static/remote_status_badge.js"></script>
+  <script src="/static/finalize_badge.js"></script>
 </body>
 </html>

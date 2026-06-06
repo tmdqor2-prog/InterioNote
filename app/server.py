@@ -192,6 +192,14 @@ def create_app() -> FastAPI:
             {"request": request, "version": app.version},
         )
 
+    # v3.5.7: 영업 대시보드
+    @app.get("/sales", response_class=HTMLResponse)
+    async def sales_page(request: Request):
+        return templates.TemplateResponse(
+            "sales.html",
+            {"request": request, "version": app.version},
+        )
+
     # v2.5.1 N
     @app.get("/quick-note", response_class=HTMLResponse)
     async def quick_note_page(request: Request):
