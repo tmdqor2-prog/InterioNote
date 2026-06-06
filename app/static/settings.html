@@ -1447,6 +1447,75 @@
     <template x-if="currentTab === 'ai'">
       <div class="space-y-6">
 
+        <!-- ============ v3.5.8: Ollama 설치·모델 점검 + 자동 재설치 ============ -->
+        <section class="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5">
+          <div class="flex items-center justify-between mb-3">
+            <h2 class="text-base font-semibold flex items-center gap-2 dark:text-gray-100">
+              <span>🦙</span> Ollama 설치·모델 점검
+            </h2>
+            <button @click="loadOllamaSetup()" :disabled="ollamaSetup.busy"
+                    class="text-xs px-2 py-1 border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-700 dark:text-gray-200">
+              🔄 다시 확인
+            </button>
+          </div>
+          <!-- Ollama 자체 설치 상태 -->
+          <div class="grid grid-cols-2 gap-2 mb-3 text-sm">
+            <div class="p-2 rounded"
+                 :class="ollamaSetup.data.ollama_installed ? 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-800 dark:text-emerald-200' : 'bg-red-50 dark:bg-red-900/20 text-red-800 dark:text-red-200'">
+              <div class="text-xs">Ollama 설치</div>
+              <div class="font-medium" x-text="ollamaSetup.data.ollama_installed ? '✅ 설치됨' + (ollamaSetup.data.ollama_version ? ' (' + ollamaSetup.data.ollama_version + ')' : '') : '❌ 미설치'"></div>
+            </div>
+            <div class="p-2 rounded"
+                 :class="ollamaSetup.data.server_running ? 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-800 dark:text-emerald-200' : 'bg-amber-50 dark:bg-amber-900/20 text-amber-800 dark:text-amber-200'">
+              <div class="text-xs">Ollama 서버</div>
+              <div class="font-medium" x-text="ollamaSetup.data.server_running ? '✅ 동작 중' : '⚠ 꺼짐'"></div>
+            </div>
+          </div>
+          <!-- Ollama 미설치 안내 -->
+          <div x-show="ollamaSetup.data.ollama_installed === false" x-cloak class="bg-amber-50 dark:bg-amber-900/30 border border-amber-300 dark:border-amber-700 rounded-lg p-3 mb-3 text-sm">
+            <div class="font-semibold text-amber-900 dark:text-amber-200 mb-1">⚠ Ollama 가 설치돼 있지 않습니다</div>
+            <p class="text-xs text-amber-800 dark:text-amber-300 mb-2">AI 분석 기능 사용을 위해 먼저 Ollama 를 설치해야 합니다.</p>
+            <a :href="ollamaSetup.data.ollama_download_url" target="_blank"
+               class="inline-block text-xs bg-amber-600 hover:bg-amber-700 text-white px-3 py-1.5 rounded">📥 Ollama 다운로드 (Windows)</a>
+          </div>
+          <!-- 서버 꺼짐 안내 -->
+          <div x-show="ollamaSetup.data.ollama_installed && !ollamaSetup.data.server_running" x-cloak class="bg-amber-50 dark:bg-amber-900/30 border border-amber-300 dark:border-amber-700 rounded-lg p-3 mb-3 text-sm">
+            <div class="font-semibold text-amber-900 dark:text-amber-200 mb-1">⚠ Ollama 서버가 켜져 있지 않습니다</div>
+            <p class="text-xs text-amber-800 dark:text-amber-300">Windows 시작 메뉴 → "Ollama" 검색 → 실행. 시스템 트레이(시계 옆)에 라마 아이콘이 떠야 합니다.</p>
+          </div>
+          <!-- 권장 모델 목록 -->
+          <div x-show="ollamaSetup.data.server_running" x-cloak>
+            <div class="text-xs text-gray-500 dark:text-gray-400 mb-2">권장 모델 (하나만 있어도 동작):</div>
+            <div class="space-y-1.5">
+              <template x-for="m in (ollamaSetup.data.recommended_models || [])" :key="m.name">
+                <div class="flex items-center gap-2 p-2 bg-gray-50 dark:bg-gray-700 rounded">
+                  <span class="text-xs px-1.5 py-0.5 rounded shrink-0"
+                        :class="(ollamaSetup.installedNames || new Set()).has(m.name) ? 'bg-emerald-200 dark:bg-emerald-800/60 text-emerald-800 dark:text-emerald-200' : 'bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-300'"
+                        x-text="(ollamaSetup.installedNames || new Set()).has(m.name) ? '✓ 설치됨' : '미설치'"></span>
+                  <div class="flex-1 min-w-0">
+                    <div class="text-sm font-mono dark:text-gray-100" x-text="m.name + ' (' + m.size_gb + 'GB)'"></div>
+                    <div class="text-[11px] text-gray-500 dark:text-gray-400" x-text="m.note + ' · 한국어 ' + m.korean_quality"></div>
+                  </div>
+                  <!-- v3.5.8.1 fix: 받기 버튼 활성화 보장 (Alpine reactive proxy 이슈 회피) -->
+                  <button x-show="!isOllamaModelInstalled(m.name)"
+                          @click="pullOllamaModel(m.name)"
+                          :disabled="isOllamaPulling(m.name)"
+                          class="text-xs bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded whitespace-nowrap font-medium disabled:bg-gray-400 disabled:cursor-not-allowed shadow-sm">
+                    <span x-show="!isOllamaPulling(m.name)">📥 받기</span>
+                    <span x-show="isOllamaPulling(m.name)" x-cloak
+                          x-text="(ollamaPullPct(m.name)) + '%'"></span>
+                  </button>
+                </div>
+              </template>
+            </div>
+            <!-- 진행 중 작업 안내 -->
+            <div x-show="Object.values(ollamaSetup.pullStatus || {}).some(j => j.state === 'running')" x-cloak
+                 class="mt-2 text-xs text-blue-700 dark:text-blue-300">
+              ⏳ 다운로드 중인 모델이 있습니다. 페이지를 닫지 마세요.
+            </div>
+          </div>
+        </section>
+
         <!-- ============ v3.5.2: 원격 데스크톱 Ollama (마스터 본인만 사용) ============ -->
         <section x-show="isMaster" x-cloak
                  class="bg-gradient-to-br from-indigo-50 to-purple-50 dark:from-indigo-950/30 dark:to-purple-950/30 rounded-xl border border-indigo-200 dark:border-indigo-800 p-5">
@@ -2309,6 +2378,15 @@ function settingsPage() {
     pwdError: '',
     pwdSuccess: '',
 
+    // v3.5.8: Ollama 설치·모델 점검
+    ollamaSetup: {
+      data: {},
+      installedNames: new Set(),
+      pullStatus: {},  // model_name -> {state, progress_pct, last_status}
+      busy: false,
+      _poller: null,
+    },
+
     // v3.0.0 Phase 3: AI 분석 탭
     ollamaModels: [],           // 설치된 모델 목록 (Ollama /api/tags)
     ollamaModelLoading: false,
@@ -2365,6 +2443,8 @@ function settingsPage() {
       this.selectedOllamaModel = (this.settings.ollama && this.settings.ollama.model) || 'qwen2.5:3b';
       // 모델 목록 로드 (load() 후에 실행해야 selectedOllamaModel 이 안전하게 유지됨)
       this.loadOllamaModels();
+      // v3.5.8: Ollama 설치·모델 점검
+      this.loadOllamaSetup();
       // v3.5.2: 마스터 본인의 원격 Ollama URL 로드
       if (this.isMaster) {
         this.loadOllamaRemote();
@@ -2406,6 +2486,77 @@ function settingsPage() {
         this.designerSaveError = String(e);
       } finally {
         this.savingDesigner = false;
+      }
+    },
+
+    // ===== v3.5.8: Ollama 설치 점검 + 자동 재설치 =====
+    // v3.5.8.1 fix: 명시적 헬퍼로 Alpine reactive proxy + Set.has 이슈 회피
+    isOllamaModelInstalled(name) {
+      const set = this.ollamaSetup && this.ollamaSetup.installedNames;
+      if (!set || typeof set.has !== 'function') return false;
+      return set.has(name);
+    },
+    isOllamaPulling(name) {
+      const ps = this.ollamaSetup && this.ollamaSetup.pullStatus;
+      if (!ps) return false;
+      const j = ps[name];
+      return !!(j && j.state === 'running');
+    },
+    ollamaPullPct(name) {
+      const ps = this.ollamaSetup && this.ollamaSetup.pullStatus;
+      if (!ps) return 0;
+      const j = ps[name];
+      return (j && typeof j.progress_pct === 'number') ? j.progress_pct : 0;
+    },
+
+    async loadOllamaSetup() {
+      this.ollamaSetup.busy = true;
+      try {
+        const r = await fetch('/api/ollama/setup-status');
+        if (!r.ok) return;
+        const d = await r.json();
+        this.ollamaSetup.data = d;
+        this.ollamaSetup.installedNames = new Set((d.installed_models || []).map(m => m.name));
+      } catch(e) {} finally { this.ollamaSetup.busy = false; }
+    },
+    async pullOllamaModel(model) {
+      try {
+        const r = await fetch('/api/ollama/pull', {
+          method: 'POST',
+          headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({model}),
+        });
+        const d = await r.json();
+        if (!r.ok) { alert(d.detail || '다운로드 시작 실패'); return; }
+        this.ollamaSetup.pullStatus[model] = {state: 'running', progress_pct: 0};
+        // 폴링 시작 (전역 1개)
+        if (!this.ollamaSetup._poller) {
+          this.ollamaSetup._poller = setInterval(() => this._pollPullStatuses(), 2000);
+        }
+      } catch(e) { alert(e.message || e); }
+    },
+    async _pollPullStatuses() {
+      const running = Object.entries(this.ollamaSetup.pullStatus || {})
+        .filter(([_, j]) => j.state === 'running')
+        .map(([m, _]) => m);
+      if (running.length === 0) {
+        if (this.ollamaSetup._poller) {
+          clearInterval(this.ollamaSetup._poller);
+          this.ollamaSetup._poller = null;
+        }
+        // 마지막에 설치 상태 재확인
+        await this.loadOllamaSetup();
+        await this.loadOllamaModels();
+        return;
+      }
+      for (const m of running) {
+        try {
+          const r = await fetch('/api/ollama/pull-status?model=' + encodeURIComponent(m));
+          if (r.ok) {
+            const d = await r.json();
+            this.ollamaSetup.pullStatus[m] = d;
+          }
+        } catch(e) {}
       }
     },
 
