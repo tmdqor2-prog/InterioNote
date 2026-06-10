@@ -91,28 +91,54 @@ hiddenimports += [
 
 # ----------------------------------------
 # 앱 정적 파일 (HTML, 이미지 등)
+# v2.4.2: version.json 도 데이터로 — 빠른 업데이트가 교체 가능하도록
 # ----------------------------------------
 datas += [
     ("app/static", "app/static"),
+    ("app/version.json", "app"),  # → _internal/app/version.json
 ]
 
 
 # ----------------------------------------
 # 안 쓰는 거 제외 (용량 ↓)
+# v3.5.5: 추가 excludes 로 배포 사이즈 약 100~200MB 감소 시도
 # ----------------------------------------
 excludes = [
+    # GUI 라이브러리 (사용 안 함)
     "matplotlib",
     "tkinter",
     "PIL",
     "Pillow",
+    "cv2",
+    # 데이터 분석 (사용 안 함)
     "pandas",
     "scipy",
-    "cv2",
+    # 개발 도구 (사용 안 함)
     "IPython",
     "jupyter",
     "notebook",
     "pytest",
     "sphinx",
+    "setuptools",
+    "wheel",
+    "pip",
+    "pkg_resources",
+    # PyTorch / NumPy 의 테스트·문서·F2PY (런타임 X)
+    "torch.testing",
+    "torch.distributions.constraints",  # large but rarely used
+    "torch.utils.tensorboard",
+    "torch.utils.benchmark",
+    "torchaudio.datasets",
+    "torchaudio.examples",
+    "numpy.testing",
+    "numpy.tests",
+    "numpy.f2py",
+    "numpy.distutils",
+    # Pywebview 의 비-Windows 백엔드들
+    "webview.platforms.cocoa",
+    "webview.platforms.gtk",
+    "webview.platforms.qt",
+    "webview.platforms.android",
 ]
 
 
@@ -131,10 +157,48 @@ a = Analysis(
     noarchive=False,
 )
 
+
+# ----------------------------------------
+# v3.5.5: 후처리 — datas/binaries 에서 큰 비-필수 파일 제거
+# 효과: 약 50~100MB 감소 (test 디렉토리, .pyi 타입 스텁, locale 등)
+# ----------------------------------------
+def _strip_unwanted(items, patterns):
+    """items 의 첫 요소(target path) 가 patterns 중 하나를 포함하면 제외."""
+    out = []
+    for it in items:
+        target = (it[0] if it else "").replace("\\", "/").lower()
+        if any(p in target for p in patterns):
+            continue
+        out.append(it)
+    return out
+
+
+_DATA_BLOCK = [
+    "/tests/", "/test/",       # 모든 패키지의 테스트
+    "/docs/", "/doc/",         # 문서
+    "/examples/",              # 예제
+    "/__pycache__/",           # PyInstaller 가 보통 빼지만 안전망
+    ".pyi",                    # 타입 스텁 (런타임 무관)
+    ".pdb",                    # 디버그 심볼
+    "/locales/cs.", "/locales/de.", "/locales/es.", "/locales/fr.",
+    "/locales/it.", "/locales/ja.", "/locales/pl.", "/locales/pt.",
+    "/locales/ru.", "/locales/zh-",  # 안 쓰는 언어 locale (한국어/영어만 유지)
+]
+_BIN_BLOCK = [
+    "/tests/", "/test/",
+]
+a.datas = _strip_unwanted(a.datas, _DATA_BLOCK)
+a.binaries = _strip_unwanted(a.binaries, _BIN_BLOCK)
+
+
 pyz = PYZ(a.pure, a.zipped_data)
 
-# 프로덕션: console=False — 검은 cmd 창 안 뜸. 앱 창만.
-# (디버그 필요할 때 이 값을 True 로 바꾼 뒤 재빌드)
+# Phase 7B-2 v2 (2026-04-27 진단 결과):
+#  - console=False (windowed) 부트로더 runw.exe 가 Windows 11 26200+ 에서
+#    silent 차단됨 (Defender 와 다른 새 보안 휴리스틱). 작업관리자에 프로세스도 안 뜸.
+#  - 해결: console=True 로 빌드 (이건 차단 안 됨) + hide_console='hide-early' 로
+#    실행 즉시 콘솔창 숨김. 사용자 체감은 windowed 모드와 동일.
+# (디버그가 필요할 땐 hide_console 줄을 주석 처리해서 콘솔 보이게 하면 됨)
 exe = EXE(
     pyz,
     a.scripts,
@@ -145,7 +209,8 @@ exe = EXE(
     bootloader_ignore_signals=False,
     strip=False,
     upx=False,                      # 안정성 우선
-    console=False,                  # ✅ 프로덕션
+    console=True,                   # ✅ 차단 회피
+    hide_console='hide-early',      # ✅ 콘솔창 자동 숨김 (PyInstaller 6+)
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,

@@ -150,8 +150,8 @@ def _save_segments_to_db(meeting_id: int, segments: List[Dict[str, Any]]) -> Non
         cur.executemany(
             """
             INSERT INTO transcript_segments
-                (meeting_id, start_ms, end_ms, text, speaker, confidence)
-            VALUES (?, ?, ?, ?, ?, ?)
+                (meeting_id, start_ms, end_ms, text, speaker, confidence, edited_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 (
@@ -161,6 +161,7 @@ def _save_segments_to_db(meeting_id: int, segments: List[Dict[str, Any]]) -> Non
                     s.get("text", "") or "",
                     s.get("speaker"),
                     s.get("confidence"),
+                    s.get("edited_at"),
                 )
                 for s in segments
             ],
@@ -171,7 +172,7 @@ def load_segments_from_db(meeting_id: int) -> List[Dict[str, Any]]:
     with db_cursor() as cur:
         rows = cur.execute(
             """
-            SELECT id, meeting_id, start_ms, end_ms, text, speaker, confidence
+            SELECT id, meeting_id, start_ms, end_ms, text, speaker, confidence, edited_at
             FROM transcript_segments
             WHERE meeting_id = ?
             ORDER BY start_ms, id
@@ -179,6 +180,110 @@ def load_segments_from_db(meeting_id: int) -> List[Dict[str, Any]]:
             (meeting_id,),
         ).fetchall()
     return [{k: r[k] for k in r.keys()} for r in rows]
+
+
+# ========================================
+# Phase 8B+: 재전사 직전 스냅샷 (되돌리기용)
+# ========================================
+def save_segments_snapshot(meeting_id: int, label: str = "pre_retranscribe") -> int:
+    """
+    현재 세그먼트들을 transcript_snapshots 에 JSON 으로 저장.
+    같은 meeting_id 의 기존 스냅샷은 덮어씀 (1단계 undo 만 지원).
+    반환: 저장된 segment 개수.
+    """
+    import json as _json
+    segments = load_segments_from_db(meeting_id)
+    payload = _json.dumps(segments, ensure_ascii=False)
+    with db_cursor() as cur:
+        cur.execute(
+            "INSERT INTO transcript_snapshots(meeting_id, snapshot_json, label, created_at) "
+            "VALUES (?, ?, ?, CURRENT_TIMESTAMP) "
+            "ON CONFLICT(meeting_id) DO UPDATE SET "
+            "snapshot_json=excluded.snapshot_json, "
+            "label=excluded.label, "
+            "created_at=excluded.created_at",
+            (meeting_id, payload, label),
+        )
+    return len(segments)
+
+
+def load_segments_snapshot(meeting_id: int) -> Optional[Dict[str, Any]]:
+    """저장된 스냅샷 조회. 없으면 None."""
+    import json as _json
+    with db_cursor() as cur:
+        row = cur.execute(
+            "SELECT snapshot_json, label, created_at "
+            "FROM transcript_snapshots WHERE meeting_id = ?",
+            (meeting_id,),
+        ).fetchone()
+    if row is None:
+        return None
+    try:
+        segs = _json.loads(row["snapshot_json"])
+    except Exception:
+        segs = []
+    return {
+        "label": row["label"],
+        "created_at": row["created_at"],
+        "segments_count": len(segs),
+        "segments": segs,
+    }
+
+
+def restore_segments_from_snapshot(meeting_id: int) -> Dict[str, Any]:
+    """
+    저장된 스냅샷의 세그먼트들로 transcript_segments 를 통째 교체.
+    스냅샷은 그대로 유지 (재실행 가능). 대화전문.md 도 재생성.
+    반환: {restored_count, label, created_at}
+    """
+    snap = load_segments_snapshot(meeting_id)
+    if snap is None:
+        raise FileNotFoundError("되돌릴 수 있는 스냅샷이 없습니다 (이 상담은 재전사된 적이 없거나 스냅샷이 만료됨).")
+    segs = snap["segments"]
+    with db_cursor() as cur:
+        cur.execute(
+            "DELETE FROM transcript_segments WHERE meeting_id = ?",
+            (meeting_id,),
+        )
+        if segs:
+            cur.executemany(
+                """
+                INSERT INTO transcript_segments
+                    (meeting_id, start_ms, end_ms, text, speaker, confidence, edited_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    (
+                        meeting_id,
+                        int(s.get("start_ms", 0)),
+                        int(s.get("end_ms", 0)),
+                        s.get("text", "") or "",
+                        s.get("speaker"),
+                        s.get("confidence"),
+                        s.get("edited_at"),
+                    )
+                    for s in segs
+                ],
+            )
+    # 대화전문.md 재생성 (실패해도 DB 복원은 성공)
+    try:
+        regenerate_transcript_md(meeting_id)
+    except Exception as e:
+        log.warning(f"snapshot restore — md regen failed: {type(e).__name__}: {e}")
+    return {
+        "restored_count": len(segs),
+        "label": snap["label"],
+        "created_at": snap["created_at"],
+    }
+
+
+def has_snapshot(meeting_id: int) -> bool:
+    with db_cursor() as cur:
+        row = cur.execute(
+            "SELECT 1 FROM transcript_snapshots WHERE meeting_id = ?",
+            (meeting_id,),
+        ).fetchone()
+    return row is not None
 
 
 def _update_meeting_row(
@@ -190,6 +295,7 @@ def _update_meeting_row(
     audio_file: Path,
     status: str = "recorded",
 ) -> None:
+    ended_iso = ended_at.isoformat(timespec="seconds")
     with db_cursor() as cur:
         cur.execute(
             """
@@ -202,13 +308,22 @@ def _update_meeting_row(
              WHERE id = ?
             """,
             (
-                ended_at.isoformat(timespec="seconds"),
+                ended_iso,
                 int(round(duration_sec)),
                 str(meeting_folder),
                 str(audio_file),
                 status,
                 meeting_id,
             ),
+        )
+        # v2.6.0 P: client.last_meeting_at 캐시 갱신 — 정렬·표시용
+        cur.execute(
+            """
+            UPDATE clients
+               SET last_meeting_at = ?
+             WHERE id = (SELECT client_id FROM meetings WHERE id = ?)
+            """,
+            (ended_iso, meeting_id),
         )
 
 

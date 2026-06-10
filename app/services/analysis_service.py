@@ -20,7 +20,7 @@ from typing import Any, Dict, List, Optional
 
 from app import config
 from app.db import db_cursor
-from app.services import analysis_prompts, meeting_finalizer, ollama_client
+from app.services import analysis_prompts, meeting_finalizer, ollama_client, settings_service
 
 log = logging.getLogger("analysis")
 
@@ -115,6 +115,7 @@ def _md_section(title: str, content: Any) -> List[str]:
 SECTION_TITLES: Dict[str, str] = {
     "summary": "📝 요약",
     "client_info": "👤 고객 정보",
+    "site_info": "🏠 인테리어 장소 정보",
     "client_requests": "🙋 고객 요청사항",
     "concerns": "⚠ 고객 우려사항",
     "action_items": "✅ 디자이너 액션 아이템",
@@ -174,9 +175,10 @@ def render_summary_md(
 # ========================================
 # 메인 엔트리
 # ========================================
-def analyze_meeting(meeting_id: int) -> Dict[str, Any]:
+def analyze_meeting(meeting_id: int, username: Optional[str] = None) -> Dict[str, Any]:
     """
     meeting_id 의 녹취록을 qwen 으로 분석.
+    v3.5.2: username 이 주어지면 그 사용자의 원격 Ollama URL 우선 사용 (실패 시 로컬 폴백).
     성공 시: {data, model_used, md_path, json_path, ...}
     실패 시: OllamaError 등 예외 전파.
     """
@@ -220,35 +222,63 @@ def analyze_meeting(meeting_id: int) -> Dict[str, Any]:
         transcript, config.OLLAMA_MAX_TRANSCRIPT_CHARS
     )
 
-    # 3) 프롬프트 빌드
+    # 3) 프롬프트 빌드 (v3.0.0 Phase 3: 추가 분석 항목 주입)
+    # v3.5.5: 기존 분석이 있으면 보존·보강 모드로 prompt 구성
+    extra_items = settings_service.get_analysis_extra_items(meeting["meeting_type"])
+    existing_analysis_data = None
+    try:
+        prev = get_existing_analysis(meeting_id)
+        if prev and prev.get("data"):
+            existing_analysis_data = prev["data"]
+    except Exception:
+        pass
     prompt = analysis_prompts.build_prompt(
         meeting_type=meeting["meeting_type"],
         transcript_text=transcript,
         client_name=meeting.get("client_name"),
         client_descriptor=meeting.get("client_descriptor"),
+        extra_items=extra_items if extra_items else None,
+        existing_analysis=existing_analysis_data,
     )
 
     # 4) 상태 표시
     _mark_status(meeting_id, "analyzing")
 
-    # 5) Ollama 호출
-    client = ollama_client.get_client()
-    model = config.OLLAMA_MODEL
+    # 5) Ollama 호출 (v3.0.0 Phase 3: settings 에서 모델 결정)
+    # v3.5.2: 사용자별 원격 URL 우선 + 자동 폴백 (generate_with_fallback)
+    model = settings_service.get_ollama_model()
 
-    log.info(f"analyze meeting={meeting_id} model={model} chars={len(transcript)}")
-    try:
-        resp = client.generate(
+    log.info(f"analyze meeting={meeting_id} model={model} chars={len(transcript)} user={username}")
+
+    def _do_call(opts):
+        return ollama_client.generate_with_fallback(
+            username,
             model=model,
             prompt=prompt,
             system=analysis_prompts.SYSTEM_PROMPT,
             format_json=True,
-            options={
-                "temperature": 0.2,
-                "top_p": 0.9,
+            options=opts,
+        )
+
+    try:
+        # 1차 시도: 안정적 옵션
+        resp = _do_call({
+            "temperature": 0.2,
+            "top_p": 0.9,
+            "num_ctx": 8192,
+            "num_predict": 2048,
+        })
+        # v3.5.4: 응답이 비정상적으로 중국어로 나오면 1회 재시도 (다른 시드 + 더 보수적인 옵션)
+        raw_text = resp.get("response") or ""
+        if analysis_prompts.has_significant_chinese(raw_text):
+            log.warning(f"analyze meeting={meeting_id}: 중국어 응답 감지 — 재시도")
+            resp = _do_call({
+                "temperature": 0.0,    # deterministic
+                "top_p": 0.5,
                 "num_ctx": 8192,
                 "num_predict": 2048,
-            },
-        )
+                "seed": 42,
+            })
     except Exception as e:
         _mark_status(meeting_id, "recorded")  # 롤백
         raise
@@ -256,6 +286,15 @@ def analyze_meeting(meeting_id: int) -> Dict[str, Any]:
     raw_text = resp.get("response") or ""
     eval_count = resp.get("eval_count")
     total_duration_ns = resp.get("total_duration")
+    # v3.5.4: 재시도해도 중국어면 사용자에게 모델 변경 안내
+    chinese_warning = ""
+    if analysis_prompts.has_significant_chinese(raw_text):
+        chinese_warning = (
+            "⚠ AI 응답이 한국어가 아닌 다른 언어 (중국어 등) 로 나왔습니다. "
+            "설정 → AI 분석 → 모델을 'llama3.2:3b' 또는 다른 모델로 변경 후 다시 시도해 주세요. "
+            "현재 모델: " + str(model)
+        )
+        log.warning(f"analyze meeting={meeting_id}: {chinese_warning}")
 
     # 6) 파싱
     data = _extract_json(raw_text)
@@ -267,6 +306,21 @@ def analyze_meeting(meeting_id: int) -> Dict[str, Any]:
             "raw_response": raw_text[:20000],  # 용량 보호
             "summary": "(AI 응답이 JSON 형식이 아니었습니다. 아래 원문을 확인하세요.)",
         }
+
+    # v3.5.5: 기존 분석이 있었으면 보존·보강 모드로 merge
+    # AI 가 재분석할 때 이미 채워진 정보·사용자 편집 내용이 손실되지 않게.
+    if existing_analysis_data and parse_ok:
+        try:
+            data = analysis_prompts.merge_analysis(existing_analysis_data, data)
+            data["_merged_from_existing"] = True
+        except Exception as e:
+            log.warning(f"merge_analysis 실패 — 신규 데이터만 사용: {e}")
+
+    # v3.5.4: 중국어 경고가 있으면 summary 맨 앞에 prepend (사용자가 즉시 인지)
+    if chinese_warning:
+        data["_language_warning"] = chinese_warning
+        existing = data.get("summary") or ""
+        data["summary"] = chinese_warning + "\n\n" + existing
 
     # 7) 파일 저장
     json_path = meeting_folder / "분석결과.json"
@@ -341,6 +395,94 @@ def analyze_meeting(meeting_id: int) -> Dict[str, Any]:
         "total_duration_sec": (total_duration_ns or 0) / 1_000_000_000.0,
         "source_segments": len(segments),
         "transcript_chars": len(transcript),
+    }
+
+
+def update_analysis_data(meeting_id: int, new_data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Phase 8B+: AI 분석 결과를 사용자가 수기 편집한 후 저장.
+    DB(data_json) 갱신 + 요약.md / 분석결과.json 재생성.
+    파일 재생성이 실패해도 DB 갱신은 성공으로 본다.
+    """
+    if not isinstance(new_data, dict):
+        raise ValueError("data 는 dict 여야 합니다.")
+
+    # meeting + 기존 모델명 조회 (요약.md 재생성에 필요)
+    meeting = meeting_finalizer._load_meeting_and_client(meeting_id)
+    if meeting is None:
+        raise ValueError(f"meeting {meeting_id} not found")
+
+    with db_cursor() as cur:
+        row = cur.execute(
+            "SELECT model_used FROM analyses WHERE meeting_id = ?",
+            (meeting_id,),
+        ).fetchone()
+        if row is None:
+            raise ValueError(f"meeting {meeting_id} 의 분석 결과가 없습니다 (먼저 분석을 실행하세요).")
+        model_used = row["model_used"] or settings_service.get_ollama_model()
+
+    # DB 업데이트
+    with db_cursor() as cur:
+        cur.execute(
+            "UPDATE analyses SET data_json = ?, created_at = CURRENT_TIMESTAMP "
+            "WHERE meeting_id = ?",
+            (json.dumps(new_data, ensure_ascii=False), meeting_id),
+        )
+
+    md_warning = None
+    json_warning = None
+    md_path = None
+    json_path = None
+
+    if meeting.get("meeting_folder"):
+        folder = Path(meeting["meeting_folder"])
+        md_path = folder / "요약.md"
+        json_path = folder / "분석결과.json"
+
+        # 요약.md 재생성
+        try:
+            client_display = meeting.get("client_name") or meeting.get("folder_name") or ""
+            if meeting.get("client_descriptor"):
+                client_display += f" ({meeting['client_descriptor']})"
+            meeting_date = (meeting.get("started_at") or "").replace("T", " ")
+            md_text = render_summary_md(
+                meeting_type=meeting["meeting_type"],
+                client_display=client_display,
+                meeting_date=meeting_date,
+                data=new_data,
+                model_used=model_used,
+            )
+            md_path.write_text(md_text, encoding="utf-8")
+        except Exception as e:
+            md_warning = f"{type(e).__name__}: {e}"
+            log.warning(f"요약.md 재생성 실패: {md_warning}")
+
+        # 분석결과.json 의 data 필드 갱신 (다른 메타는 보존)
+        try:
+            existing_payload = {}
+            if json_path.exists():
+                try:
+                    existing_payload = json.loads(json_path.read_text(encoding="utf-8"))
+                except Exception:
+                    existing_payload = {}
+            existing_payload["data"] = new_data
+            existing_payload["edited_at"] = datetime.now().isoformat(timespec="seconds")
+            json_path.write_text(
+                json.dumps(existing_payload, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+        except Exception as e:
+            json_warning = f"{type(e).__name__}: {e}"
+            log.warning(f"분석결과.json 갱신 실패: {json_warning}")
+
+    return {
+        "meeting_id": meeting_id,
+        "data": new_data,
+        "model_used": model_used,
+        "md_path": str(md_path) if md_path else None,
+        "json_path": str(json_path) if json_path else None,
+        "md_warning": md_warning,
+        "json_warning": json_warning,
     }
 
 

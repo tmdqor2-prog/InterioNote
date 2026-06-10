@@ -221,8 +221,8 @@ class LiveSession:
             if seg is None:  # stop sentinel
                 return
             try:
-                start_ms = int(seg["start_sample"] * 1000 / SAMPLE_RATE)
-                end_ms = int(seg["end_sample"] * 1000 / SAMPLE_RATE)
+                vad_start_ms = int(seg["start_sample"] * 1000 / SAMPLE_RATE)
+                vad_end_ms = int(seg["end_sample"] * 1000 / SAMPLE_RATE)
                 result = transcribe_segment(
                     seg["audio"],
                     sample_rate=SAMPLE_RATE,
@@ -231,20 +231,48 @@ class LiveSession:
                 text = (result.get("text") or "").strip()
                 if not text:
                     continue
+                avg_conf = result.get("avg_confidence")
 
-                entry = {
-                    "id": self._next_id,
-                    "start_ms": start_ms,
-                    "end_ms": end_ms,
-                    "duration_ms": max(0, end_ms - start_ms),
-                    "text": text,
-                    "confidence": result.get("avg_confidence"),
-                    "speaker": None,  # 녹음 후 수동 라벨(Phase 3~)
-                    "created_at": datetime.now().isoformat(timespec="seconds"),
-                }
+                # v3.5.4: sub_segments 가 있으면 마침표 단위로 분할해 여러 카드 생성
+                # 없거나 1개면 기존처럼 1개 카드
+                sub_segs = result.get("sub_segments") or []
+                if len(sub_segs) <= 1:
+                    cards = [{
+                        "start_ms": vad_start_ms,
+                        "end_ms": vad_end_ms,
+                        "text": text,
+                    }]
+                else:
+                    # whisper 의 start/end (초) 는 audio 청크 시작 기준 → VAD start 더해서 절대 시간으로
+                    cards = []
+                    for ss in sub_segs:
+                        s_ms = vad_start_ms + int(ss["start"] * 1000)
+                        e_ms = vad_start_ms + int(ss["end"] * 1000)
+                        # VAD 구간 밖으로 나가지 않도록 clamp
+                        s_ms = max(vad_start_ms, min(s_ms, vad_end_ms))
+                        e_ms = max(s_ms, min(e_ms, vad_end_ms))
+                        cards.append({
+                            "start_ms": s_ms,
+                            "end_ms": e_ms,
+                            "text": ss["text"],
+                        })
+
+                now_iso = datetime.now().isoformat(timespec="seconds")
                 with self._segments_lock:
-                    self._segments.append(entry)
-                self._next_id += 1
+                    for c in cards:
+                        entry = {
+                            "id": self._next_id,
+                            "start_ms": c["start_ms"],
+                            "end_ms": c["end_ms"],
+                            "duration_ms": max(0, c["end_ms"] - c["start_ms"]),
+                            "text": c["text"],
+                            "confidence": avg_conf,
+                            "speaker": None,
+                            "edited_at": None,
+                            "created_at": now_iso,
+                        }
+                        self._segments.append(entry)
+                        self._next_id += 1
                 self._last_text_for_prompt = text
             except Exception as e:
                 log.error(f"Whisper transcribe error: {type(e).__name__}: {e}")
@@ -289,6 +317,69 @@ class LiveSession:
                     s["speaker"] = speaker
                     return True
         return False
+
+    def update_segment_text(self, segment_id: int, text: str) -> Optional[Dict[str, Any]]:
+        """
+        Phase 8A — 녹음 중 메모리 내 세그먼트의 text 를 사용자 편집으로 교체.
+        edited_at 타임스탬프를 찍어 두면 finalize 시 그대로 DB 저장되고
+        나중에 retranscribe 가 이 카드를 보존(시간 겹침 시 새 카드 폐기) 한다.
+        반환: 수정된 segment dict 사본, 못 찾으면 None.
+        """
+        new_text = (text or "").strip()
+        if not new_text:
+            raise ValueError("빈 텍스트로 교체할 수 없습니다.")
+        with self._segments_lock:
+            for s in self._segments:
+                if s["id"] == segment_id:
+                    s["text"] = new_text
+                    s["edited_at"] = datetime.now().isoformat(timespec="seconds")
+                    return dict(s)
+        return None
+
+    def split_segment(self, segment_id: int, split_at: int) -> Optional[Dict[str, Any]]:
+        """v3.5.4 — 녹음 중 in-memory 카드를 둘로 분할.
+        텍스트는 split_at 위치에서 자르고, 시간(start_ms ~ end_ms) 은 텍스트 길이 비례.
+        반환: {left, right} 두 카드 dict, 못 찾으면 None.
+        """
+        now_iso = datetime.now().isoformat(timespec="seconds")
+        with self._segments_lock:
+            for i, s in enumerate(self._segments):
+                if s["id"] != segment_id:
+                    continue
+                text = s["text"] or ""
+                n = len(text)
+                at = max(1, min(int(split_at), n - 1))
+                left_t = text[:at].strip()
+                right_t = text[at:].strip()
+                if not left_t or not right_t:
+                    raise ValueError("분할 위치가 텍스트 끝에 너무 가깝습니다.")
+                start_ms = int(s["start_ms"])
+                end_ms = int(s["end_ms"])
+                ratio = at / n
+                mid_ms = start_ms + int((end_ms - start_ms) * ratio)
+                mid_ms = max(start_ms + 100, min(mid_ms, end_ms - 100))
+                # 원본을 left 로 변경
+                s["text"] = left_t
+                s["end_ms"] = mid_ms
+                s["duration_ms"] = max(0, mid_ms - start_ms)
+                s["edited_at"] = now_iso
+                # 새 right 카드 생성 (id 새로 할당)
+                right = {
+                    "id": self._next_id,
+                    "start_ms": mid_ms,
+                    "end_ms": end_ms,
+                    "duration_ms": max(0, end_ms - mid_ms),
+                    "text": right_t,
+                    "confidence": s.get("confidence"),
+                    "speaker": s.get("speaker"),
+                    "edited_at": now_iso,
+                    "created_at": s.get("created_at") or now_iso,
+                }
+                self._next_id += 1
+                # 원본 바로 다음 위치에 right 삽입 (start_ms 정렬 유지)
+                self._segments.insert(i + 1, right)
+                return {"left": dict(s), "right": dict(right)}
+        return None
 
     def final_result(self) -> Dict[str, Any]:
         duration = (
@@ -347,4 +438,9 @@ def stop_session() -> Dict[str, Any]:
         _active = None
     # stop 은 I/O + join → lock 밖에서
     s.stop()
-    return s.final_result()
+    result = s.final_result()
+    # 세션 객체 해제 + GC — 녹음 버퍼·numpy 배열 즉시 회수
+    del s
+    import gc
+    gc.collect()
+    return result

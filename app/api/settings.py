@@ -16,7 +16,7 @@ from typing import Optional
 from pathlib import Path
 from typing import List
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from app.services import settings_service, whisper_service
@@ -33,8 +33,11 @@ def _describe_exc(prefix: str, e: Exception) -> str:
 # 전체 조회
 # ========================================
 @router.get("")
-def get_settings():
-    return settings_service.get_all_settings()
+def get_settings(request: Request):
+    # v3.5.2: 로그인 사용자별 designer 정보 자동 적용
+    user = getattr(request.state, "user", None)
+    username = user.get("sub") if user else None
+    return settings_service.get_all_settings(username=username)
 
 
 # ========================================
@@ -43,6 +46,7 @@ def get_settings():
 class WhisperSettingsRequest(BaseModel):
     model_size: Optional[str] = None
     beam_size: Optional[int] = Field(None, ge=1, le=8)
+    device: Optional[str] = None  # Phase 8B: 'auto' | 'cpu' | 'cuda'
 
 
 @router.post("/whisper")
@@ -59,6 +63,12 @@ def update_whisper_settings(req: WhisperSettingsRequest):
             if int(req.beam_size) != old_b:
                 settings_service.set_whisper_beam_size(int(req.beam_size))
                 changed["beam_size"] = {"old": old_b, "new": int(req.beam_size)}
+        if req.device is not None:
+            old_d = settings_service.get_whisper_device()
+            if req.device != old_d:
+                settings_service.set_whisper_device(req.device)
+                whisper_service.reset_models_for_device_change()
+                changed["device"] = {"old": old_d, "new": req.device}
     except ValueError as e:
         raise HTTPException(400, str(e))
     except Exception as e:
@@ -69,9 +79,11 @@ def update_whisper_settings(req: WhisperSettingsRequest):
         "changed": changed,
         "model_size": settings_service.get_whisper_model_size(),
         "beam_size": settings_service.get_whisper_beam_size(),
+        "device": settings_service.get_whisper_device(),
         "loaded_in_memory": whisper_service.get_loaded_model_size(),
+        "loaded_device": whisper_service.get_loaded_device(),
         "needs_warmup": (
-            "model_size" in changed
+            ("model_size" in changed or "device" in changed)
             and whisper_service.get_loaded_model_size() != settings_service.get_whisper_model_size()
         ),
     }
@@ -202,3 +214,82 @@ def reset_folder_template():
 
     cleaned = settings_service.set_folder_template(list(_config.FOLDER_TEMPLATE))
     return {"ok": True, "folder_template": cleaned}
+
+
+# ========================================
+# v3.0.0 — 담당자(디자이너) 정보
+# ========================================
+class DesignerInfoRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=50)
+    store: Optional[str] = ""
+    phone: Optional[str] = ""
+
+
+def _username_of(request: Request) -> Optional[str]:
+    user = getattr(request.state, "user", None)
+    return user.get("sub") if user else None
+
+
+@router.get("/designer")
+def get_designer(request: Request):
+    # v3.5.2: 로그인 사용자별 담당자 정보 (없으면 기존 글로벌 값 자동 폴백)
+    return settings_service.get_designer_info(username=_username_of(request))
+
+
+@router.post("/designer")
+def update_designer(req: DesignerInfoRequest, request: Request):
+    # v3.5.2: 로그인 사용자 전용 저장 — 다른 사용자 영향 없음
+    try:
+        info = settings_service.set_designer_info(
+            name=req.name,
+            store=req.store or "",
+            phone=req.phone or "",
+            username=_username_of(request),
+        )
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"ok": True, **info}
+
+
+# ========================================
+# v3.0.0 Phase 3: Ollama 모델 선택
+# ========================================
+class OllamaModelRequest(BaseModel):
+    model: str
+
+
+@router.post("/ollama-model")
+def update_ollama_model(req: OllamaModelRequest):
+    try:
+        settings_service.set_ollama_model(req.model)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"ok": True, "model": settings_service.get_ollama_model()}
+
+
+# ========================================
+# v3.0.0 Phase 3: 분석 추가 항목 (상담 종류별)
+# ========================================
+class AnalysisExtraItemsRequest(BaseModel):
+    meeting_type: str
+    items: List[dict]
+
+
+@router.get("/analysis-extra-items/{meeting_type}")
+def get_analysis_extra_items(meeting_type: str):
+    try:
+        items = settings_service.get_analysis_extra_items(meeting_type)
+    except Exception as e:
+        raise HTTPException(500, _describe_exc("get_analysis_extra_items", e))
+    return {"meeting_type": meeting_type, "items": items}
+
+
+@router.post("/analysis-extra-items")
+def update_analysis_extra_items(req: AnalysisExtraItemsRequest):
+    try:
+        result = settings_service.set_analysis_extra_items(req.meeting_type, req.items)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except Exception as e:
+        raise HTTPException(500, _describe_exc("update_analysis_extra_items", e))
+    return {"ok": True, "meeting_type": req.meeting_type, "items": result}

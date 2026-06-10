@@ -1,0 +1,1332 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>고객 360 · InterioNote</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = { darkMode: 'class' };
+    (function() {
+      try {
+        var t = localStorage.getItem('interionote.theme') || 'system';
+        var dark = (t === 'dark') ||
+          (t === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+        if (dark) document.documentElement.classList.add('dark');
+      } catch(e) {}
+    })();
+  </script>
+  <!-- v3.0.0 Phase 2: 인증 (fetch 오버라이드 + 즉시 토큰 확인) -->
+  <script>
+  (function(){
+    var _origFetch = window.fetch.bind(window);
+    window.fetch = async function(resource, opts){
+      opts = opts ? Object.assign({}, opts) : {};
+      if (typeof resource === 'string' && resource.startsWith('/api/')) {
+        var tok = localStorage.getItem('interionote.token');
+        if (tok) opts.headers = Object.assign({'Authorization': 'Bearer ' + tok}, opts.headers || {});
+      }
+      var r = await _origFetch(resource, opts);
+      if (r.status === 401 && window.location.pathname !== '/login') {
+        localStorage.removeItem('interionote.token');
+        localStorage.removeItem('interionote.user');
+        window.location.replace('/login');
+      }
+      return r;
+    };
+    if (window.location.pathname !== '/login') {
+      var tok = localStorage.getItem('interionote.token');
+      if (!tok) { window.location.replace('/login'); return; }
+      try {
+        var p = JSON.parse(atob(tok.split('.')[1].replace(/-/g,'+').replace(/_/g,'/')));
+        if (p.exp && Date.now()/1000 > p.exp) {
+          localStorage.removeItem('interionote.token');
+          localStorage.removeItem('interionote.user');
+          window.location.replace('/login');
+        }
+      } catch(e) {}
+    }
+    window.getAuthUser = function(){
+      try { return JSON.parse(localStorage.getItem('interionote.user') || 'null'); } catch(e){ return null; }
+    };
+    window.logoutUser = function(){
+      localStorage.removeItem('interionote.token');
+      localStorage.removeItem('interionote.user');
+      window.location.replace('/login');
+    };
+  })();
+  </script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrious/4.0.2/qrious.min.js"></script>
+  <script defer src="https://unpkg.com/alpinejs@3.14.1/dist/cdn.min.js"></script>
+  <style>
+    body { font-family: 'Segoe UI', 'Malgun Gothic', system-ui, sans-serif; }
+    [x-cloak] { display: none !important; }
+    /* v2.5.4 다크모드 액센트 보강 */
+    html.dark .bg-amber-50 { background-color: rgba(120, 53, 15, 0.25) !important; }
+    html.dark .bg-blue-50 { background-color: rgba(30, 58, 138, 0.25) !important; }
+    html.dark .bg-emerald-50 { background-color: rgba(6, 78, 59, 0.30) !important; }
+    html.dark .bg-purple-50 { background-color: rgba(76, 29, 149, 0.25) !important; }
+    html.dark .text-amber-900, html.dark .text-amber-800 { color: #fde68a !important; }
+    html.dark .text-blue-900, html.dark .text-blue-800 { color: #bfdbfe !important; }
+    html.dark .text-emerald-900, html.dark .text-emerald-800 { color: #a7f3d0 !important; }
+  </style>
+</head>
+<body class="bg-gray-50 dark:bg-gray-900 dark:text-gray-100 min-h-screen">
+
+<div x-data="customer360({{ client_id }})" x-init="init()" class="min-h-screen">
+
+  <!-- Header -->
+  <header class="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 sticky top-0 z-10">
+    <div class="max-w-6xl mx-auto px-6 py-3 flex items-center justify-between gap-3">
+      <div class="flex items-center gap-3 min-w-0">
+        <a href="/" class="text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 shrink-0">← 홈</a>
+        <h1 class="text-lg font-bold flex items-center gap-2 dark:text-gray-100">
+          <span>👤</span>
+          <span x-text="(data && data.client) ? (data.client.name + ' 고객님') : '...'"></span>
+          <span x-show="data && data.client" class="text-xs text-gray-400 font-normal" x-text="data && data.client && (data.client.descriptor ? '(' + data.client.descriptor + ')' : '')"></span>
+          <span class="ml-2 text-xs font-medium text-gray-500 dark:text-gray-400">— 고객 360 뷰</span>
+        </h1>
+      </div>
+      <div class="flex items-center gap-2 shrink-0">
+        <button x-show="data && data.client" @click="toggleFavorite()"
+                class="text-sm px-2 py-1 border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-700">
+          <span x-show="data && data.client && data.client.is_favorite" x-cloak>⭐ 즐겨찾기</span>
+          <span x-show="data && data.client && !data.client.is_favorite" x-cloak>☆ 즐겨찾기</span>
+        </button>
+        <button @click="load()" class="text-sm text-gray-500 dark:text-gray-400 hover:text-gray-900 px-2 py-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700">
+          🔄
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <main class="max-w-6xl mx-auto px-6 py-6 space-y-4">
+    <div x-show="loading" x-cloak class="text-center text-gray-500 dark:text-gray-400 py-12">
+      ⏳ 고객 정보 불러오는 중...
+    </div>
+    <div x-show="error" x-cloak class="bg-red-50 border border-red-300 dark:border-red-700 rounded-lg p-4 text-sm text-red-900 dark:text-red-200" x-text="error"></div>
+
+    <template x-if="data && !loading">
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+
+        <!-- LEFT: 누적 AI 요약 + 진행률 + site_info -->
+        <div class="lg:col-span-1 space-y-4">
+
+          <!-- v3.3.0 Phase 5: 폴더 빠른 열기 -->
+          <div x-show="data.client.folder_path" class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
+            <div class="font-semibold mb-2 text-sm dark:text-gray-100">📁 고객 폴더</div>
+            <div class="flex gap-1.5 flex-wrap">
+              <button @click="openClientFolder()"
+                      class="text-xs bg-gray-50 dark:bg-gray-700 hover:bg-gray-100 dark:hover:bg-gray-600 border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 px-3 py-1.5 rounded-lg transition">
+                📂 고객 폴더 열기
+              </button>
+              <button @click="openImageFolder()"
+                      class="text-xs bg-sky-50 dark:bg-sky-900/30 hover:bg-sky-100 dark:hover:bg-sky-900/50 border border-sky-200 dark:border-sky-700 text-sky-700 dark:text-sky-300 px-3 py-1.5 rounded-lg transition">
+                🖼 현장이미지 열기
+              </button>
+              <button @click="openConsultFolder()"
+                      class="text-xs bg-indigo-50 dark:bg-indigo-900/30 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 border border-indigo-200 dark:border-indigo-700 text-indigo-700 dark:text-indigo-300 px-3 py-1.5 rounded-lg transition">
+                📋 상담기록 열기
+              </button>
+            </div>
+          </div>
+
+          <!-- v3.0.0: 연락처 -->
+          <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
+            <div class="font-semibold mb-2 flex items-center justify-between dark:text-gray-100">
+              <span>📞 연락처</span>
+              <button @click="editingContact = !editingContact" class="text-xs text-blue-600 dark:text-blue-400 hover:underline" x-text="editingContact ? '취소' : '편집'"></button>
+            </div>
+            <!-- 보기 모드 -->
+            <template x-if="!editingContact">
+              <div class="space-y-1 text-sm">
+                <div x-show="data.client.phone" class="flex items-center gap-2">
+                  <span class="text-gray-400 dark:text-gray-500 text-xs w-12 shrink-0">전화</span>
+                  <a :href="'tel:' + (data.client.phone || '')" class="text-blue-600 dark:text-blue-400 font-mono hover:underline" x-text="data.client.phone"></a>
+                </div>
+                <div x-show="data.client.email" class="flex items-center gap-2">
+                  <span class="text-gray-400 dark:text-gray-500 text-xs w-12 shrink-0">이메일</span>
+                  <a :href="'mailto:' + (data.client.email || '')" class="text-blue-600 dark:text-blue-400 hover:underline" x-text="data.client.email"></a>
+                </div>
+                <div x-show="data.client.visit_source" class="flex items-center gap-2">
+                  <span class="text-gray-400 dark:text-gray-500 text-xs w-12 shrink-0">경로</span>
+                  <span class="dark:text-gray-200" x-text="data.client.visit_source"></span>
+                </div>
+                <div x-show="!data.client.phone && !data.client.email && !data.client.visit_source" class="text-gray-400 dark:text-gray-500 text-xs">
+                  연락처 정보 없음 — 편집으로 추가
+                </div>
+              </div>
+            </template>
+            <!-- 편집 모드 -->
+            <template x-if="editingContact">
+              <div class="space-y-2">
+                <div>
+                  <label class="text-xs text-gray-500 dark:text-gray-400 block mb-0.5">전화번호</label>
+                  <input type="tel" x-model="contactForm.phone" placeholder="010-0000-0000"
+                         class="w-full text-sm px-2 py-1.5 border border-gray-300 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 rounded focus:outline-none focus:border-blue-500"/>
+                </div>
+                <div>
+                  <label class="text-xs text-gray-500 dark:text-gray-400 block mb-0.5">이메일</label>
+                  <input type="email" x-model="contactForm.email" placeholder="example@email.com"
+                         class="w-full text-sm px-2 py-1.5 border border-gray-300 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 rounded focus:outline-none focus:border-blue-500"/>
+                </div>
+                <div>
+                  <label class="text-xs text-gray-500 dark:text-gray-400 block mb-0.5">방문 경로</label>
+                  <select x-model="contactForm.visit_source"
+                          class="w-full text-sm px-2 py-1.5 border border-gray-300 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 rounded focus:outline-none focus:border-blue-500">
+                    <option value="">선택 안 함</option>
+                    <option>인스타그램</option>
+                    <option>블로그</option>
+                    <option>지인소개</option>
+                    <option>쇼핑몰 방문</option>
+                    <option>기타</option>
+                  </select>
+                </div>
+                <button @click="saveContact()" :disabled="savingContact"
+                        class="w-full text-sm bg-blue-600 hover:bg-blue-700 text-white py-1.5 rounded disabled:bg-gray-300 transition">
+                  <span x-show="!savingContact">💾 저장</span>
+                  <span x-show="savingContact" x-cloak>저장 중...</span>
+                </button>
+                <div x-show="contactSaveError" x-cloak class="text-xs text-red-600 dark:text-red-400" x-text="contactSaveError"></div>
+              </div>
+            </template>
+          </div>
+
+          <!-- 진행률 -->
+          <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
+            <div class="font-semibold mb-2 flex items-center gap-2 dark:text-gray-100">📊 계약 진행률</div>
+            <div class="flex items-center gap-1 mb-2 flex-wrap">
+              <template x-for="s in data.client.stages" :key="s">
+                <button @click="changeStage(s)"
+                        :class="data.client.stage === s
+                          ? 'bg-blue-600 text-white border-blue-600'
+                          : 'bg-gray-50 dark:bg-gray-700 border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-blue-50 dark:hover:bg-blue-900/30'"
+                        class="text-xs px-2 py-1 border rounded font-medium">
+                  <span x-text="s"></span>
+                </button>
+              </template>
+            </div>
+            <div class="text-[11px] text-gray-500 dark:text-gray-400">현재 단계 클릭으로 변경</div>
+          </div>
+
+          <!-- 핵심 장소 정보 (가장 최근 분석에서 누적) -->
+          <div x-show="hasSiteInfo" x-cloak class="bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-700/50 rounded-xl p-4">
+            <div class="font-semibold mb-2 flex items-center gap-2 text-blue-900 dark:text-blue-200">🏠 인테리어 장소 정보</div>
+            <table class="text-sm w-full">
+              <template x-for="[k, v] in siteInfoEntries" :key="k">
+                <tr>
+                  <td class="text-blue-800 dark:text-blue-300 py-0.5 pr-2 align-top text-xs whitespace-nowrap" x-text="siteFieldLabel(k)"></td>
+                  <td class="text-blue-900 dark:text-blue-100 py-0.5" x-text="v"></td>
+                </tr>
+              </template>
+            </table>
+          </div>
+
+          <!-- ③ v3.5.0: 소개 경로 -->
+          <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
+            <div class="font-semibold mb-2 flex items-center justify-between dark:text-gray-100">
+              <span>🤝 소개 경로</span>
+              <button @click="toggleReferralEdit()" class="text-xs text-blue-600 dark:text-blue-400 hover:underline" x-text="editingReferral ? '취소' : '편집'"></button>
+            </div>
+            <template x-if="!editingReferral">
+              <div class="text-sm">
+                <span x-show="data.client.display_referrer" x-cloak class="text-gray-800 dark:text-gray-200">
+                  <span class="text-gray-400 dark:text-gray-500 text-xs mr-1">소개자:</span>
+                  <span class="font-medium" x-text="data.client.display_referrer"></span>
+                  <span x-show="data.client.referred_by_client_id" x-cloak class="text-xs text-blue-400 ml-1" title="고객 DB 연결">🔗</span>
+                </span>
+                <span x-show="!data.client.display_referrer" class="text-gray-400 dark:text-gray-500 text-xs">소개자 없음</span>
+              </div>
+            </template>
+            <div x-show="editingReferral" x-cloak class="space-y-2">
+              <label class="text-xs text-gray-500 dark:text-gray-400 block">소개자 이름 (DB 고객 검색 또는 직접 입력)</label>
+              <div class="relative">
+                <input type="text" x-model="referralSearch" @input="searchReferralClients()"
+                       placeholder="이름 검색 또는 직접 입력..."
+                       class="w-full text-sm px-2 py-1.5 border border-gray-300 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 rounded focus:outline-none focus:border-blue-500 pr-7"/>
+                <span x-show="referralSelectedClient" x-cloak
+                      class="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-blue-500" title="DB 고객 연결됨">🔗</span>
+              </div>
+              <div x-show="referralResults.length > 0" class="border border-gray-200 dark:border-gray-700 rounded overflow-hidden">
+                <template x-for="c in referralResults" :key="c.client_id">
+                  <button @click="selectReferralClient(c)"
+                          class="w-full text-left px-3 py-1.5 text-sm hover:bg-blue-50 dark:hover:bg-blue-900/30 dark:text-gray-200 border-b border-gray-100 dark:border-gray-700 last:border-0">
+                    <span x-text="c.name"></span>
+                    <span class="text-xs text-gray-400 dark:text-gray-500 ml-1" x-text="c.descriptor ? '(' + c.descriptor + ')' : ''"></span>
+                  </button>
+                </template>
+              </div>
+              <div x-show="referralSelectedClient" x-cloak class="text-xs text-blue-600 dark:text-blue-400">
+                🔗 <span x-text="referralSelectedClient && referralSelectedClient.name"></span> (DB 고객) 선택됨
+              </div>
+              <div class="flex gap-2">
+                <button @click="saveReferral()" :disabled="savingReferral"
+                        class="flex-1 text-sm bg-blue-600 hover:bg-blue-700 text-white py-1.5 rounded disabled:bg-gray-300 transition">
+                  <span x-show="!savingReferral">💾 저장</span>
+                  <span x-show="savingReferral" x-cloak>저장 중...</span>
+                </button>
+                <button @click="removeReferral()" :disabled="savingReferral"
+                        class="text-sm px-3 py-1.5 border border-red-200 dark:border-red-700 text-red-500 rounded hover:bg-red-50 dark:hover:bg-red-900/30 disabled:opacity-50">
+                  제거
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- ② v3.5.0: 커스텀 필드 -->
+          <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
+            <div class="font-semibold mb-2 flex items-center justify-between dark:text-gray-100">
+              <span>📝 추가 정보</span>
+              <button @click="if(!editingCustomFields){_initCustomFieldsEdit();} editingCustomFields = !editingCustomFields"
+                      class="text-xs text-blue-600 dark:text-blue-400 hover:underline" x-text="editingCustomFields ? '취소' : '편집'"></button>
+            </div>
+            <template x-if="!editingCustomFields">
+              <div class="space-y-1">
+                <template x-for="[k,v] in Object.entries(data.client.custom_fields || {})" :key="k">
+                  <div class="flex items-start gap-2 text-sm">
+                    <span class="text-gray-400 dark:text-gray-500 text-xs w-20 shrink-0 pt-0.5" x-text="k"></span>
+                    <span class="dark:text-gray-200" x-text="v"></span>
+                  </div>
+                </template>
+                <div x-show="!data.client.custom_fields || Object.keys(data.client.custom_fields).length === 0"
+                     class="text-xs text-gray-400 dark:text-gray-500">편집 버튼으로 항목 추가</div>
+              </div>
+            </template>
+            <template x-if="editingCustomFields">
+              <div class="space-y-2">
+                <template x-for="(field, idx) in customFieldsEdit" :key="idx">
+                  <div class="flex gap-1.5 items-center">
+                    <input type="text" x-model="field.key" placeholder="항목명 (예: 평수)"
+                           class="flex-1 text-xs px-2 py-1 border border-gray-300 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 rounded focus:outline-none focus:border-blue-500"/>
+                    <input type="text" x-model="field.value" placeholder="값"
+                           class="flex-1 text-xs px-2 py-1 border border-gray-300 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 rounded focus:outline-none focus:border-blue-500"/>
+                    <button @click="customFieldsEdit.splice(idx,1)" class="text-red-400 hover:text-red-600 text-xs">✕</button>
+                  </div>
+                </template>
+                <button @click="customFieldsEdit.push({key:'',value:''})" class="text-xs text-blue-600 dark:text-blue-400 hover:underline">+ 항목 추가</button>
+                <button @click="saveCustomFields()" :disabled="savingCustomFields"
+                        class="w-full text-sm bg-blue-600 hover:bg-blue-700 text-white py-1.5 rounded disabled:bg-gray-300 transition mt-1">
+                  <span x-show="!savingCustomFields">💾 저장</span>
+                  <span x-show="savingCustomFields" x-cloak>저장 중...</span>
+                </button>
+              </div>
+            </template>
+          </div>
+
+          <!-- 태그 -->
+          <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
+            <div class="font-semibold mb-2 flex items-center gap-2 dark:text-gray-100">🏷 태그</div>
+            <div x-show="!data.tags.length" class="text-sm text-gray-400 dark:text-gray-500">아직 태그가 없습니다.</div>
+            <div class="flex flex-wrap gap-1.5">
+              <template x-for="t in data.tags" :key="t">
+                <span class="text-xs bg-purple-100 dark:bg-purple-800/40 text-purple-800 dark:text-purple-200 px-2 py-0.5 rounded-full" x-text="'#' + t"></span>
+              </template>
+            </div>
+          </div>
+
+          <!-- ⑧ v3.5.0: AI 성향 프로파일 -->
+          <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
+            <div class="flex items-center justify-between mb-2">
+              <div class="font-semibold flex items-center gap-2 dark:text-gray-100">🧠 AI 성향 프로파일</div>
+              <div class="flex gap-1">
+                <button @click="if(!editingPersonality){_initPersonalityEdit();} editingPersonality=!editingPersonality"
+                        class="text-xs px-2 py-1 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded hover:bg-gray-50 dark:hover:bg-gray-700"
+                        x-text="editingPersonality ? '취소' : '✏ 수기편집'"></button>
+                <button @click="generatePersonality()"
+                        :disabled="personalityState === 'running'"
+                        class="text-xs px-2 py-1 border border-purple-300 dark:border-purple-600 text-purple-700 dark:text-purple-300 rounded hover:bg-purple-50 dark:hover:bg-purple-900/30 disabled:opacity-50">
+                  <span x-show="personalityState !== 'running'">✨ AI 분석</span>
+                  <span x-show="personalityState === 'running'" x-cloak>⏳ 분석 중...</span>
+                </button>
+              </div>
+            </div>
+            <!-- 보기 모드 -->
+            <template x-if="data.client.personality && !editingPersonality">
+              <div class="space-y-1 text-sm">
+                <div class="flex items-center gap-2">
+                  <span class="text-xs text-gray-400 dark:text-gray-500 w-20 shrink-0">가격 민감도</span>
+                  <span class="font-medium dark:text-gray-200" x-text="data.client.personality['가격민감도'] || '-'"></span>
+                </div>
+                <div class="flex items-center gap-2">
+                  <span class="text-xs text-gray-400 dark:text-gray-500 w-20 shrink-0">결정 속도</span>
+                  <span class="font-medium dark:text-gray-200" x-text="data.client.personality['결정속도'] || '-'"></span>
+                </div>
+                <div class="flex items-center gap-2">
+                  <span class="text-xs text-gray-400 dark:text-gray-500 w-20 shrink-0">선호 스타일</span>
+                  <span class="font-medium dark:text-gray-200" x-text="data.client.personality['선호스타일'] || '-'"></span>
+                </div>
+                <div x-show="data.client.personality['특이사항']" class="text-xs text-gray-600 dark:text-gray-300 mt-1 leading-relaxed" x-text="'💬 ' + (data.client.personality['특이사항'] || '')"></div>
+                <div x-show="data.client.personality['담당자팁']" class="text-xs bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700/50 rounded p-2 mt-1 text-amber-900 dark:text-amber-200" x-text="'💡 ' + (data.client.personality['담당자팁'] || '')"></div>
+              </div>
+            </template>
+            <!-- 수기 편집 모드 -->
+            <div x-show="editingPersonality" x-cloak class="space-y-2">
+              <div class="grid grid-cols-3 gap-2">
+                <div>
+                  <label class="text-xs text-gray-500 dark:text-gray-400 block mb-0.5">가격 민감도</label>
+                  <select x-model="personalityEdit['가격민감도']"
+                          class="w-full text-xs px-2 py-1 border border-gray-300 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 rounded focus:outline-none focus:border-blue-500">
+                    <option value="">선택</option>
+                    <option>높음</option><option>중간</option><option>낮음</option>
+                  </select>
+                </div>
+                <div>
+                  <label class="text-xs text-gray-500 dark:text-gray-400 block mb-0.5">결정 속도</label>
+                  <select x-model="personalityEdit['결정속도']"
+                          class="w-full text-xs px-2 py-1 border border-gray-300 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 rounded focus:outline-none focus:border-blue-500">
+                    <option value="">선택</option>
+                    <option>빠름</option><option>보통</option><option>느림</option>
+                  </select>
+                </div>
+                <div>
+                  <label class="text-xs text-gray-500 dark:text-gray-400 block mb-0.5">선호 스타일</label>
+                  <select x-model="personalityEdit['선호스타일']"
+                          class="w-full text-xs px-2 py-1 border border-gray-300 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 rounded focus:outline-none focus:border-blue-500">
+                    <option value="">선택</option>
+                    <option>모던</option><option>북유럽</option><option>클래식</option><option>기타</option>
+                  </select>
+                </div>
+              </div>
+              <div>
+                <label class="text-xs text-gray-500 dark:text-gray-400 block mb-0.5">특이사항</label>
+                <textarea x-model="personalityEdit['특이사항']" rows="2" placeholder="특이사항..."
+                          class="w-full text-xs px-2 py-1 border border-gray-300 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 rounded focus:outline-none focus:border-blue-500 resize-none"></textarea>
+              </div>
+              <div>
+                <label class="text-xs text-gray-500 dark:text-gray-400 block mb-0.5">담당자 팁</label>
+                <textarea x-model="personalityEdit['담당자팁']" rows="2" placeholder="상담 시 주의할 점..."
+                          class="w-full text-xs px-2 py-1 border border-gray-300 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 rounded focus:outline-none focus:border-blue-500 resize-none"></textarea>
+              </div>
+              <button @click="savePersonality()" :disabled="savingPersonality"
+                      class="w-full text-sm bg-blue-600 hover:bg-blue-700 text-white py-1.5 rounded disabled:bg-gray-300 transition">
+                <span x-show="!savingPersonality">💾 저장</span>
+                <span x-show="savingPersonality" x-cloak>저장 중...</span>
+              </button>
+            </div>
+            <div x-show="!data.client.personality && !editingPersonality" x-cloak class="text-xs text-gray-400 dark:text-gray-500">AI 분석 또는 수기편집 버튼으로 성향 프로파일 생성</div>
+            <div x-show="personalityError" x-cloak class="text-xs text-red-600 dark:text-red-400 mt-1" x-text="personalityError"></div>
+          </div>
+
+          <!-- ⑪ v3.5.0: 고객 정보 카드 이미지 -->
+          <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
+            <div class="flex items-center justify-between mb-3">
+              <div class="font-semibold flex items-center gap-2 dark:text-gray-100">🪪 고객 정보 카드</div>
+              <button @click="downloadInfoCard()"
+                      class="text-xs px-2 py-1 border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-700 dark:text-gray-200">
+                📥 이미지 저장
+              </button>
+            </div>
+            <!-- 카드 미리보기 -->
+            <div id="customerInfoCard"
+                 class="rounded-lg overflow-hidden border border-gray-200 dark:border-gray-600"
+                 style="background: linear-gradient(135deg, #1e3a5f 0%, #2563eb 100%); padding: 16px; color: white;">
+              <div style="font-size:11px; opacity:0.7; letter-spacing:0.1em; text-transform:uppercase; margin-bottom:4px;">InterioNote</div>
+              <div style="font-size:18px; font-weight:700; margin-bottom:2px;" x-text="data.client.name || '고객명'"></div>
+              <div style="font-size:12px; opacity:0.75; margin-bottom:12px;" x-text="data.client.descriptor ? '(' + data.client.descriptor + ')' : ''"></div>
+              <div style="border-top: 1px solid rgba(255,255,255,0.2); padding-top:10px; display:flex; gap:16px; flex-wrap:wrap;">
+                <div x-show="data.client.phone">
+                  <div style="font-size:9px; opacity:0.6; text-transform:uppercase; letter-spacing:0.05em;">연락처</div>
+                  <div style="font-size:13px; font-weight:500;" x-text="data.client.phone"></div>
+                </div>
+                <div>
+                  <div style="font-size:9px; opacity:0.6; text-transform:uppercase; letter-spacing:0.05em;">단계</div>
+                  <div style="font-size:13px; font-weight:500;" x-text="data.client.stage || '초도'"></div>
+                </div>
+                <div x-show="data.client.visit_source">
+                  <div style="font-size:9px; opacity:0.6; text-transform:uppercase; letter-spacing:0.05em;">방문경로</div>
+                  <div style="font-size:13px; font-weight:500;" x-text="data.client.visit_source"></div>
+                </div>
+              </div>
+            </div>
+            <!-- 숨겨진 canvas (이미지 생성용) -->
+            <canvas id="infoCardCanvas" style="display:none;"></canvas>
+          </div>
+
+          <!-- 누적 AI 요약 -->
+          <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
+            <div class="flex items-center justify-between mb-2">
+              <div class="font-semibold flex items-center gap-2 dark:text-gray-100">🤖 누적 AI 요약</div>
+              <button @click="regenerateAggregate()"
+                      :disabled="aggregateState === 'running'"
+                      class="text-xs px-2 py-1 border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-700 dark:text-gray-200 disabled:opacity-50">
+                <span x-show="aggregateState !== 'running'">🔄 갱신</span>
+                <span x-show="aggregateState === 'running'" x-cloak>⏳ 분석 중...</span>
+              </button>
+            </div>
+            <div x-show="!data.aggregate_summary" x-cloak class="text-sm text-gray-500 dark:text-gray-400 italic">
+              아직 누적 요약이 없습니다. 위의 [🔄 갱신] 으로 모든 상담을 합쳐 AI 누적 분석을 생성하세요.
+            </div>
+            <div x-show="data.aggregate_summary" x-cloak class="text-sm whitespace-pre-wrap leading-relaxed dark:text-gray-200" x-text="data.aggregate_summary"></div>
+            <div x-show="data.aggregate_summary_at" x-cloak class="text-[11px] text-gray-400 dark:text-gray-500 mt-2" x-text="'마지막 갱신: ' + data.aggregate_summary_at"></div>
+            <div x-show="aggregateError" x-cloak class="text-xs text-red-700 mt-2" x-text="aggregateError"></div>
+          </div>
+
+          <!-- v3.5.7: 다음 미팅 자동 준비 -->
+          <div class="bg-gradient-to-br from-indigo-50 to-purple-50 dark:from-indigo-950/30 dark:to-purple-950/30 border border-indigo-200 dark:border-indigo-800 rounded-xl p-4">
+            <div class="flex items-center justify-between mb-2">
+              <div class="font-semibold flex items-center gap-2 dark:text-gray-100">
+                <span>🤖</span> 다음 미팅 자동 준비
+              </div>
+              <button @click="generateNextMeetingPrep()"
+                      :disabled="nextPrep.busy"
+                      class="text-xs px-2 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded disabled:opacity-50">
+                <span x-show="!nextPrep.busy">✨ 생성</span>
+                <span x-show="nextPrep.busy" x-cloak>⏳ 분석 중...</span>
+              </button>
+            </div>
+            <div x-show="!nextPrep.data && !nextPrep.busy" class="text-xs text-gray-500 dark:text-gray-400">
+              이전 상담을 종합해 다음 미팅 의제·준비물·추천 질문을 자동 생성.
+            </div>
+            <template x-if="nextPrep.data">
+              <div class="text-sm space-y-2 mt-2">
+                <div class="bg-white/70 dark:bg-gray-800/40 rounded p-2">
+                  <div class="text-[11px] text-gray-500 dark:text-gray-400 mb-0.5">다음 미팅 추천</div>
+                  <div class="font-semibold text-indigo-700 dark:text-indigo-300" x-text="nextPrep.data.next_meeting_type + ' · 약 ' + nextPrep.data.estimated_total_minutes + '분'"></div>
+                </div>
+                <div x-show="(nextPrep.data.agenda || []).length" x-cloak>
+                  <div class="text-[11px] font-semibold text-gray-600 dark:text-gray-300 mb-1">📋 의제</div>
+                  <template x-for="(a, i) in nextPrep.data.agenda" :key="i">
+                    <div class="flex items-start gap-2 text-xs bg-white/60 dark:bg-gray-800/30 rounded p-1.5 mb-1">
+                      <span class="px-1 py-0.5 text-[10px] rounded shrink-0"
+                            :class="a.priority === 'high' ? 'bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300' :
+                                    a.priority === 'medium' ? 'bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300' :
+                                    'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300'"
+                            x-text="a.priority"></span>
+                      <div class="flex-1 dark:text-gray-200">
+                        <div class="font-medium" x-text="a.topic"></div>
+                        <div class="text-[11px] text-gray-500 dark:text-gray-400" x-text="a.details + ' (' + a.expected_minutes + '분)'"></div>
+                      </div>
+                    </div>
+                  </template>
+                </div>
+                <div x-show="(nextPrep.data.preparation_items || []).length" x-cloak>
+                  <div class="text-[11px] font-semibold text-gray-600 dark:text-gray-300 mb-1">📦 준비물</div>
+                  <ul class="text-xs space-y-0.5 dark:text-gray-200">
+                    <template x-for="p in nextPrep.data.preparation_items" :key="p">
+                      <li>· <span x-text="p"></span></li>
+                    </template>
+                  </ul>
+                </div>
+                <div x-show="(nextPrep.data.recommended_questions || []).length" x-cloak>
+                  <div class="text-[11px] font-semibold text-gray-600 dark:text-gray-300 mb-1">❓ 추천 질문</div>
+                  <ul class="text-xs space-y-0.5 dark:text-gray-200">
+                    <template x-for="q in nextPrep.data.recommended_questions" :key="q">
+                      <li>💬 <span x-text="q"></span></li>
+                    </template>
+                  </ul>
+                </div>
+                <div x-show="nextPrep.data.follow_up_message_draft" x-cloak class="bg-emerald-50 dark:bg-emerald-900/20 rounded p-2 mt-2">
+                  <div class="flex items-center justify-between mb-1">
+                    <div class="text-[11px] font-semibold text-emerald-800 dark:text-emerald-300">💬 미팅 전 카톡 초안</div>
+                    <button @click="copyText(nextPrep.data.follow_up_message_draft)"
+                            class="text-[11px] text-emerald-700 hover:text-emerald-900 dark:text-emerald-300">📋 복사</button>
+                  </div>
+                  <div class="text-xs whitespace-pre-wrap dark:text-gray-200" x-text="nextPrep.data.follow_up_message_draft"></div>
+                </div>
+              </div>
+            </template>
+            <div x-show="nextPrep.error" x-cloak class="text-xs text-red-700 dark:text-red-300 mt-2" x-text="nextPrep.error"></div>
+          </div>
+        </div>
+
+        <!-- RIGHT (2칸): 일정 + 상담 타임라인 -->
+        <div class="lg:col-span-2 space-y-4">
+
+          <!-- ④ v3.5.0: 일정 관리 -->
+          <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
+            <div class="flex items-center justify-between mb-3">
+              <div class="font-semibold flex items-center gap-2 dark:text-gray-100">📅 일정 관리</div>
+              <button @click="showAddAppointment = !showAddAppointment"
+                      class="text-xs px-2 py-1 border border-blue-300 dark:border-blue-600 text-blue-700 dark:text-blue-300 rounded hover:bg-blue-50 dark:hover:bg-blue-900/30">
+                + 일정 추가
+              </button>
+            </div>
+            <!-- 추가 폼 -->
+            <div x-show="showAddAppointment" x-cloak class="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700/50 rounded-lg p-3 mb-3 space-y-2">
+              <input type="text" x-model="newAppt.title" placeholder="일정 제목 (예: 디자인미팅, 현장실측)"
+                     class="w-full text-sm px-2 py-1.5 border border-gray-300 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 rounded focus:outline-none focus:border-blue-500"/>
+              <input type="datetime-local" x-model="newAppt.scheduled_at"
+                     class="w-full text-sm px-2 py-1.5 border border-gray-300 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 rounded focus:outline-none focus:border-blue-500"/>
+              <input type="text" x-model="newAppt.notes" placeholder="비고 (선택)"
+                     class="w-full text-sm px-2 py-1.5 border border-gray-300 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 rounded focus:outline-none focus:border-blue-500"/>
+              <div class="flex gap-2">
+                <button @click="addAppointment()" :disabled="savingAppt || !newAppt.title || !newAppt.scheduled_at"
+                        class="flex-1 text-sm bg-blue-600 hover:bg-blue-700 text-white py-1.5 rounded disabled:bg-gray-300">
+                  <span x-show="!savingAppt">저장</span><span x-show="savingAppt" x-cloak>저장 중...</span>
+                </button>
+                <button @click="showAddAppointment=false" class="text-sm px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-100 dark:hover:bg-gray-700 dark:text-gray-200">취소</button>
+              </div>
+            </div>
+            <!-- 일정 목록 -->
+            <div x-show="appointments.length === 0 && !showAddAppointment" class="text-sm text-gray-400 dark:text-gray-500">등록된 일정이 없습니다.</div>
+            <ul class="space-y-2">
+              <template x-for="a in appointments" :key="a.id">
+                <li class="flex items-start gap-2 p-2 rounded-lg border border-gray-100 dark:border-gray-700">
+                  <span class="text-xs font-bold px-2 py-0.5 rounded mt-0.5 shrink-0"
+                        :class="a.completed ? 'bg-gray-100 text-gray-400 dark:bg-gray-700 dark:text-gray-500'
+                                : a.dday === 0 ? 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300'
+                                : a.dday > 0 && a.dday <= 3 ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200'
+                                : 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-200'"
+                        x-text="a.completed ? '완료' : (a.dday === 0 ? 'D-Day' : a.dday > 0 ? 'D-'+a.dday : 'D+'+Math.abs(a.dday))"></span>
+                  <div class="flex-1 min-w-0">
+                    <div class="font-medium text-sm dark:text-gray-200" :class="a.completed ? 'line-through text-gray-400 dark:text-gray-500' : ''" x-text="a.title"></div>
+                    <div class="text-xs text-gray-500 dark:text-gray-400" x-text="(a.scheduled_at||'').slice(0,16).replace('T',' ')"></div>
+                    <div x-show="a.notes" class="text-xs text-gray-400 dark:text-gray-500 mt-0.5" x-text="a.notes"></div>
+                  </div>
+                  <button x-show="!a.completed" @click="completeAppt(a.id)"
+                          class="shrink-0 text-xs px-2 py-1 bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-700 rounded hover:bg-emerald-100">✓</button>
+                  <button @click="deleteAppt(a.id)"
+                          class="shrink-0 text-xs px-2 py-1 text-red-400 hover:text-red-600">✕</button>
+                </li>
+              </template>
+            </ul>
+          </div>
+
+          <!-- 상담 타임라인 -->
+          <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
+            <div class="font-semibold mb-3 flex items-center gap-2 dark:text-gray-100">
+              🗂 상담 타임라인
+              <span class="text-xs text-gray-500 dark:text-gray-400 font-normal" x-text="'(총 ' + data.meetings.length + '건)'"></span>
+            </div>
+            <div x-show="!data.meetings.length" class="text-sm text-gray-400 dark:text-gray-500">아직 상담 기록이 없습니다.</div>
+            <ul class="space-y-2">
+              <template x-for="m in data.meetings" :key="m.id">
+                <li class="border border-gray-200 dark:border-gray-700 rounded-lg p-3 hover:border-blue-300 dark:hover:border-blue-600 transition">
+                  <div class="flex items-center justify-between gap-2 flex-wrap cursor-pointer" @click="openMeeting(m.id)">
+                    <div class="flex items-center gap-2">
+                      <span class="text-xs font-mono text-blue-600 dark:text-blue-400" x-text="(m.started_at || '').slice(0, 10)"></span>
+                      <span class="text-xs px-1.5 py-0.5 rounded font-medium"
+                            :class="m.meeting_type === '초도상담' ? 'bg-amber-100 dark:bg-amber-800/40 text-amber-800 dark:text-amber-200'
+                                  : m.meeting_type === '디자인미팅' ? 'bg-blue-100 dark:bg-blue-800/40 text-blue-800 dark:text-blue-200'
+                                  : 'bg-emerald-100 dark:bg-emerald-800/40 text-emerald-800 dark:text-emerald-200'"
+                            x-text="m.meeting_type"></span>
+                      <span x-show="m.has_analysis" x-cloak class="text-xs text-purple-600 dark:text-purple-400" title="AI 분석 완료">🤖</span>
+                      <span x-show="m.ojt_synced_at" x-cloak class="text-xs text-emerald-600 dark:text-emerald-400" :title="'OJT 동기화: ' + m.ojt_synced_at">📊</span>
+                    </div>
+                    <div class="text-xs text-gray-500 dark:text-gray-400">
+                      <span x-show="m.duration_sec" x-cloak x-text="formatDur(m.duration_sec)"></span>
+                      <span x-show="m.segments_count" x-cloak class="ml-2" x-text="m.segments_count + '발화'"></span>
+                    </div>
+                  </div>
+                  <div x-show="m.summary_first_line" x-cloak class="text-sm text-gray-700 dark:text-gray-300 mt-1.5 cursor-pointer" @click="openMeeting(m.id)" x-text="m.summary_first_line"></div>
+                  <div x-show="m.tags && m.tags.length" x-cloak class="flex flex-wrap gap-1 mt-1.5">
+                    <template x-for="t in m.tags" :key="t">
+                      <span class="text-[10px] bg-purple-100 dark:bg-purple-800/40 text-purple-800 dark:text-purple-200 px-1.5 rounded" x-text="'#' + t"></span>
+                    </template>
+                  </div>
+                  <!-- ⑮ 계약 금액 -->
+                  <div x-show="m.contract_amount" x-cloak class="mt-2 text-xs flex items-center gap-3 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-700/50 rounded px-2 py-1">
+                    <span class="text-emerald-700 dark:text-emerald-300">💰 계약 <span x-text="Number(m.contract_amount||0).toLocaleString()"></span>원</span>
+                    <span x-show="m.deposit_amount" class="text-emerald-600 dark:text-emerald-400">입금 <span x-text="Number(m.deposit_amount||0).toLocaleString()"></span>원</span>
+                    <span x-show="m.contract_date" class="text-gray-500 dark:text-gray-400" x-text="m.contract_date"></span>
+                  </div>
+                  <!-- ⑬⑭ 이메일 초안 / QR -->
+                  <div x-show="m.has_analysis" x-cloak class="mt-2 flex gap-2">
+                    <button @click.stop="openEmailDraft(m)"
+                            class="text-xs px-2 py-1 bg-indigo-50 dark:bg-indigo-900/30 border border-indigo-200 dark:border-indigo-700 text-indigo-700 dark:text-indigo-300 rounded hover:bg-indigo-100 dark:hover:bg-indigo-900/50 transition">
+                      ✉ 이메일 초안
+                    </button>
+                    <button @click.stop="openQr(m.id)"
+                            class="text-xs px-2 py-1 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 rounded hover:bg-gray-100 dark:hover:bg-gray-600 transition">
+                      📱 QR
+                    </button>
+                  </div>
+                </li>
+              </template>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </template>
+  </main>
+
+  <!-- ⑬ 이메일 초안 모달 -->
+  <div x-show="showEmailModal" x-cloak
+       class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+       @keydown.escape.window="showEmailModal=false">
+    <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col"
+         @click.outside="showEmailModal=false">
+      <div class="px-6 py-4 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between">
+        <h2 class="font-bold dark:text-gray-100">✉ 이메일 초안 생성</h2>
+        <button @click="showEmailModal=false" class="text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 text-xl">×</button>
+      </div>
+      <div class="p-5 space-y-3 flex-1 overflow-y-auto">
+        <div class="flex gap-2">
+          <button @click="emailTone='formal'; generateEmailDraft()"
+                  :class="emailTone==='formal' ? 'bg-blue-600 text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300'"
+                  class="text-sm px-3 py-1.5 rounded">공식 이메일</button>
+          <button @click="emailTone='friendly'; generateEmailDraft()"
+                  :class="emailTone==='friendly' ? 'bg-blue-600 text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300'"
+                  class="text-sm px-3 py-1.5 rounded">카카오 채널 스타일</button>
+        </div>
+        <div x-show="emailState==='running'" class="text-center text-gray-500 dark:text-gray-400 py-8">
+          <div class="inline-block w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+          <div class="mt-2 text-sm">AI가 초안을 작성 중입니다...</div>
+        </div>
+        <template x-if="emailState==='done' && emailDraft">
+          <div class="space-y-2">
+            <div class="bg-gray-50 dark:bg-gray-700 rounded-lg p-3">
+              <div class="text-xs text-gray-500 dark:text-gray-400 mb-1">제목</div>
+              <div class="font-medium dark:text-gray-100" x-text="emailDraft.subject"></div>
+            </div>
+            <div class="bg-gray-50 dark:bg-gray-700 rounded-lg p-3">
+              <div class="text-xs text-gray-500 dark:text-gray-400 mb-1">본문</div>
+              <div class="text-sm dark:text-gray-200 whitespace-pre-wrap leading-relaxed" x-text="emailDraft.body"></div>
+            </div>
+            <button @click="copyEmail()"
+                    class="w-full text-sm bg-blue-600 hover:bg-blue-700 text-white py-2 rounded">
+              📋 클립보드 복사
+            </button>
+          </div>
+        </template>
+        <div x-show="emailState==='error'" class="text-sm text-red-600 dark:text-red-400" x-text="emailError"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ⑭ QR 코드 모달 -->
+  <div x-show="showQrModal" x-cloak
+       class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+       @keydown.escape.window="showQrModal=false">
+    <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-sm p-6 text-center"
+         @click.outside="showQrModal=false">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="font-bold dark:text-gray-100">📱 상담 요약 QR</h2>
+        <button @click="showQrModal=false" class="text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 text-xl">×</button>
+      </div>
+      <div class="flex flex-col items-center">
+        <canvas id="qrCanvas" width="220" height="220" class="rounded-lg border border-gray-200 dark:border-gray-700"></canvas>
+        <div class="text-xs text-gray-500 dark:text-gray-400 mt-3 text-center">
+          📱 스마트폰으로 스캔 → 상담 요약 페이지가 열립니다.<br>
+          <span class="text-amber-700 dark:text-amber-400">⚠ 스마트폰이 이 PC 와 <strong>같은 WiFi</strong>에 연결돼야 합니다.</span>
+        </div>
+        <div x-show="qrUrlForDisplay" x-cloak class="mt-2 w-full bg-gray-50 dark:bg-gray-700 rounded p-2">
+          <div class="text-[10px] text-gray-400 dark:text-gray-500 mb-0.5">QR 안의 주소:</div>
+          <code class="text-xs text-gray-700 dark:text-gray-300 break-all" x-text="qrUrlForDisplay"></code>
+        </div>
+        <!-- v3.5.3: 진단 표시 (방화벽 통과 여부 + 안내) -->
+        <div x-show="qrDiagHint" x-cloak class="mt-2 w-full p-2 rounded text-xs"
+             :class="qrFirewallOK ? 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-800 dark:text-emerald-200' :
+                    'bg-amber-50 dark:bg-amber-900/20 text-amber-800 dark:text-amber-200'">
+          <div class="font-medium mb-0.5">
+            <span x-show="qrFirewallOK">✅ 진단</span>
+            <span x-show="qrFirewallOK === false">⚠ 진단</span>
+          </div>
+          <div class="whitespace-pre-line" x-text="qrDiagHint"></div>
+        </div>
+      </div>
+      <div x-show="qrError" class="text-sm text-amber-700 dark:text-amber-300 mt-2" x-text="qrError"></div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+function customer360(clientId) {
+  return {
+    clientId: clientId,
+    loading: true,
+    error: '',
+    data: null,
+    aggregateState: 'idle',
+    aggregateError: '',
+    // v3.5.7: 다음 미팅 자동 준비
+    nextPrep: { busy: false, data: null, error: '' },
+
+    // v3.0.0: 연락처 편집
+    editingContact: false,
+    contactForm: { phone: '', email: '', visit_source: '' },
+    savingContact: false,
+    contactSaveError: '',
+
+    // ② 커스텀 필드
+    editingCustomFields: false,
+    customFieldsEdit: [],
+    savingCustomFields: false,
+
+    // ③ 소개 경로
+    editingReferral: false,
+    referralSearch: '',
+    referralResults: [],
+    referralSelectedClient: null,
+    savingReferral: false,
+
+    // ④ 일정
+    appointments: [],
+    showAddAppointment: false,
+    newAppt: { title: '', scheduled_at: '', notes: '' },
+    savingAppt: false,
+
+    // ⑧ 성향 프로파일
+    personalityState: 'idle',
+    personalityError: '',
+    editingPersonality: false,
+    personalityEdit: {'가격민감도': '', '결정속도': '', '선호스타일': '', '특이사항': '', '담당자팁': ''},
+    savingPersonality: false,
+
+    // ⑬ 이메일 초안
+    showEmailModal: false,
+    emailState: 'idle',
+    emailError: '',
+    emailDraft: null,
+    emailTone: 'formal',
+    _emailMeetingId: null,
+
+    // ⑭ QR
+    showQrModal: false,
+    qrError: '',
+    qrUrlForDisplay: '',  // v3.5.2: QR 안의 URL 사용자에게 표시
+    qrDiagHint: '',       // v3.5.3: 진단 안내 문구
+    qrFirewallOK: null,   // v3.5.3: 방화벽 통과 여부
+
+    siteFieldMap: {
+      address: '주소',
+      complex_name: '단지/건물',
+      building_unit: '동/호',
+      size_pyeong: '평형',
+      size_m2: '면적(m²)',
+      expansion: '확장',
+      structure_type: '구조',
+    },
+
+    async init() {
+      await this.load();
+      this.loadAppointments();
+    },
+
+    async load() {
+      this.loading = true;
+      this.error = '';
+      try {
+        const r = await fetch('/api/clients/' + this.clientId + '/360');
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        this.data = await r.json();
+        // 연락처 폼 초기화
+        const c = this.data.client || {};
+        this.contactForm = { phone: c.phone || '', email: c.email || '', visit_source: c.visit_source || '' };
+      } catch (e) {
+        this.error = '고객 정보 로드 실패: ' + (e.message || e);
+      } finally {
+        this.loading = false;
+      }
+    },
+
+    async saveContact() {
+      this.savingContact = true;
+      this.contactSaveError = '';
+      try {
+        const r = await fetch('/api/clients/' + this.clientId + '/contact', {
+          method: 'PATCH',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({
+            phone: this.contactForm.phone.trim() || null,
+            email: this.contactForm.email.trim() || null,
+            visit_source: this.contactForm.visit_source.trim() || null,
+          }),
+        });
+        if (!r.ok) {
+          const err = await r.json().catch(() => ({}));
+          throw new Error(err.detail || 'HTTP ' + r.status);
+        }
+        const data = await r.json();
+        // data 에 반영
+        if (this.data && this.data.client) {
+          this.data.client.phone = data.phone;
+          this.data.client.email = data.email;
+          this.data.client.visit_source = data.visit_source;
+        }
+        this.editingContact = false;
+      } catch (e) {
+        this.contactSaveError = e.message || String(e);
+      } finally {
+        this.savingContact = false;
+      }
+    },
+
+    get hasSiteInfo() {
+      return this.data && this.data.site_info && Object.keys(this.data.site_info).length > 0;
+    },
+    get siteInfoEntries() {
+      if (!this.data || !this.data.site_info) return [];
+      const order = ['address', 'complex_name', 'building_unit', 'size_pyeong', 'size_m2', 'expansion', 'structure_type'];
+      const entries = [];
+      for (const k of order) {
+        const v = this.data.site_info[k];
+        if (v) entries.push([k, v]);
+      }
+      return entries;
+    },
+    siteFieldLabel(k) { return this.siteFieldMap[k] || k; },
+
+    formatDur(sec) {
+      const s = Math.floor(sec || 0);
+      const h = Math.floor(s / 3600);
+      const m = Math.floor((s % 3600) / 60);
+      const ss = s % 60;
+      if (h) return `${h}시간 ${m}분`;
+      if (m) return `${m}분 ${ss}초`;
+      return `${ss}초`;
+    },
+
+    async changeStage(stage) {
+      try {
+        const r = await fetch('/api/clients/' + this.clientId + '/stage', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({stage}),
+        });
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        const data = await r.json();
+        if (this.data && this.data.client) this.data.client.stage = data.stage;
+      } catch (e) {
+        alert('단계 변경 실패: ' + (e.message || e));
+      }
+    },
+
+    async toggleFavorite() {
+      try {
+        const r = await fetch('/api/clients/' + this.clientId + '/favorite', {method: 'POST'});
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        const data = await r.json();
+        if (this.data && this.data.client) this.data.client.is_favorite = data.is_favorite;
+      } catch (e) { alert('실패: ' + e); }
+    },
+
+    // v3.5.7: 다음 미팅 준비 생성
+    async generateNextMeetingPrep() {
+      if (!this.clientId) return;
+      this.nextPrep.busy = true;
+      this.nextPrep.error = '';
+      try {
+        const r = await fetch('/api/clients/' + this.clientId + '/next-meeting-prep', {method: 'POST'});
+        const d = await r.json();
+        if (!r.ok || !d.ok) throw new Error(d.detail || d.error || '생성 실패');
+        this.nextPrep.data = d.prep;
+      } catch(e) {
+        this.nextPrep.error = e.message || String(e);
+      } finally {
+        this.nextPrep.busy = false;
+      }
+    },
+    copyText(t) {
+      navigator.clipboard.writeText(t).then(() => alert('복사됐습니다!'));
+    },
+
+    async regenerateAggregate() {
+      if (this.aggregateState === 'running') return;
+      this.aggregateState = 'running';
+      this.aggregateError = '';
+      try {
+        const r = await fetch('/api/clients/' + this.clientId + '/aggregate-summary', {
+          method: 'POST',
+        });
+        if (!r.ok) {
+          const err = await r.json().catch(() => ({detail: r.statusText}));
+          throw new Error(err.detail || ('HTTP ' + r.status));
+        }
+        const data = await r.json();
+        if (this.data) {
+          this.data.aggregate_summary = data.aggregate_summary;
+          this.data.aggregate_summary_at = data.aggregate_summary_at;
+        }
+        this.aggregateState = 'idle';
+      } catch (e) {
+        this.aggregateError = '누적 요약 갱신 실패: ' + (e.message || e);
+        this.aggregateState = 'error';
+      }
+    },
+
+    openMeeting(id) {
+      window.location.href = '/live?m=' + id;
+    },
+
+    // ② 커스텀 필드
+    _initCustomFieldsEdit() {
+      const cf = (this.data && this.data.client && this.data.client.custom_fields) || {};
+      this.customFieldsEdit = Object.entries(cf).map(([key, value]) => ({key, value}));
+    },
+    async saveCustomFields() {
+      this.savingCustomFields = true;
+      try {
+        const fields = {};
+        for (const f of this.customFieldsEdit) {
+          if (f.key.trim()) fields[f.key.trim()] = f.value;
+        }
+        const r = await fetch('/api/clients/' + this.clientId + '/custom-fields', {
+          method: 'PATCH',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({fields}),
+        });
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        if (this.data && this.data.client) this.data.client.custom_fields = fields;
+        this.editingCustomFields = false;
+      } catch(e) { alert('저장 실패: ' + e.message); }
+      finally { this.savingCustomFields = false; }
+    },
+
+    // ③ 소개 경로
+    toggleReferralEdit() {
+      if (this.editingReferral) {
+        this.editingReferral = false;
+        this.referralSearch = '';
+        this.referralResults = [];
+        this.referralSelectedClient = null;
+      } else {
+        // 현재 소개자 이름 미리 채우기
+        this.referralSearch = (this.data && this.data.client && this.data.client.display_referrer) || '';
+        this.referralSelectedClient = null;
+        this.referralResults = [];
+        this.editingReferral = true;
+      }
+    },
+    async searchReferralClients() {
+      const q = this.referralSearch.trim();
+      if (q.length < 1) { this.referralResults = []; return; }
+      // 입력이 선택된 고객 이름과 다르면 선택 해제
+      if (this.referralSelectedClient && this.referralSearch !== this.referralSelectedClient.name) {
+        this.referralSelectedClient = null;
+      }
+      try {
+        const r = await fetch('/api/clients?q=' + encodeURIComponent(q));
+        if (!r.ok) return;
+        const data = await r.json();
+        this.referralResults = (data.clients || [])
+          .filter(c => c.client_id && c.client_id !== this.clientId)
+          .slice(0, 6);
+      } catch(e) {}
+    },
+    selectReferralClient(c) {
+      this.referralSelectedClient = c;
+      this.referralSearch = c.name;
+      this.referralResults = [];
+    },
+    async saveReferral() {
+      this.savingReferral = true;
+      try {
+        let body;
+        if (this.referralSelectedClient) {
+          // DB 고객 연결
+          body = {referred_by_client_id: this.referralSelectedClient.client_id, referral_name: null};
+        } else if (this.referralSearch.trim()) {
+          // 자유 텍스트 소개자
+          body = {referred_by_client_id: null, referral_name: this.referralSearch.trim()};
+        } else {
+          // 소개 없음
+          body = {referred_by_client_id: null, referral_name: null};
+        }
+        const r = await fetch('/api/clients/' + this.clientId + '/referral', {
+          method: 'PATCH',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify(body),
+        });
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        const data = await r.json();
+        if (this.data && this.data.client) {
+          this.data.client.referred_by_client_id = data.referred_by_client_id;
+          this.data.client.referrer_name = data.referrer_name;
+          this.data.client.referral_name_free = data.referral_name_free;
+          this.data.client.display_referrer = data.display_referrer;
+        }
+        this.editingReferral = false;
+        this.referralSearch = '';
+        this.referralResults = [];
+        this.referralSelectedClient = null;
+      } catch(e) { alert('저장 실패: ' + e.message); }
+      finally { this.savingReferral = false; }
+    },
+    async removeReferral() {
+      if (!confirm('소개 경로를 제거할까요?')) return;
+      this.savingReferral = true;
+      try {
+        const r = await fetch('/api/clients/' + this.clientId + '/referral', {
+          method: 'PATCH',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({referred_by_client_id: null, referral_name: null}),
+        });
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        if (this.data && this.data.client) {
+          this.data.client.referred_by_client_id = null;
+          this.data.client.referrer_name = null;
+          this.data.client.referral_name_free = null;
+          this.data.client.display_referrer = null;
+        }
+        this.editingReferral = false;
+        this.referralSearch = '';
+        this.referralResults = [];
+        this.referralSelectedClient = null;
+      } catch(e) { alert('실패: ' + e.message); }
+      finally { this.savingReferral = false; }
+    },
+
+    // ④ 일정
+    async loadAppointments() {
+      try {
+        const r = await fetch('/api/clients/' + this.clientId + '/appointments');
+        if (r.ok) this.appointments = await r.json();
+      } catch(e) {}
+    },
+    async addAppointment() {
+      this.savingAppt = true;
+      try {
+        const r = await fetch('/api/clients/' + this.clientId + '/appointments', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({
+            title: this.newAppt.title,
+            scheduled_at: this.newAppt.scheduled_at.replace('T', ' '),
+            notes: this.newAppt.notes || null,
+          }),
+        });
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        const appt = await r.json();
+        this.appointments.unshift(appt);
+        this.newAppt = {title:'', scheduled_at:'', notes:''};
+        this.showAddAppointment = false;
+      } catch(e) { alert('일정 추가 실패: ' + e.message); }
+      finally { this.savingAppt = false; }
+    },
+    async completeAppt(id) {
+      try {
+        await fetch('/api/appointments/' + id, {method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({completed:true})});
+        const a = this.appointments.find(x => x.id === id);
+        if (a) a.completed = 1;
+      } catch(e) { alert('실패: ' + e.message); }
+    },
+    async deleteAppt(id) {
+      if (!confirm('일정을 삭제할까요?')) return;
+      try {
+        await fetch('/api/appointments/' + id, {method:'DELETE'});
+        this.appointments = this.appointments.filter(x => x.id !== id);
+      } catch(e) { alert('실패: ' + e.message); }
+    },
+
+    // ⑧ 성향 프로파일
+    async generatePersonality() {
+      if (this.personalityState === 'running') return;
+      this.personalityState = 'running';
+      this.personalityError = '';
+      try {
+        const r = await fetch('/api/clients/' + this.clientId + '/personality', {method:'POST'});
+        if (!r.ok) {
+          const err = await r.json().catch(() => ({}));
+          throw new Error(err.detail || 'HTTP ' + r.status);
+        }
+        const data = await r.json();
+        if (this.data && this.data.client) this.data.client.personality = data.profile;
+        this.personalityState = 'idle';
+        this.editingPersonality = false;
+      } catch(e) {
+        this.personalityError = e.message || String(e);
+        this.personalityState = 'error';
+      }
+    },
+    _initPersonalityEdit() {
+      const p = (this.data && this.data.client && this.data.client.personality) || {};
+      this.personalityEdit = {
+        '가격민감도': p['가격민감도'] || '',
+        '결정속도': p['결정속도'] || '',
+        '선호스타일': p['선호스타일'] || '',
+        '특이사항': p['특이사항'] || '',
+        '담당자팁': p['담당자팁'] || '',
+      };
+    },
+    async savePersonality() {
+      this.savingPersonality = true;
+      try {
+        const profile = {};
+        for (const k of ['가격민감도', '결정속도', '선호스타일', '특이사항', '담당자팁']) {
+          if (this.personalityEdit[k]) profile[k] = this.personalityEdit[k];
+        }
+        const r = await fetch('/api/clients/' + this.clientId + '/personality-manual', {
+          method: 'PATCH',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({profile}),
+        });
+        if (!r.ok) {
+          const err = await r.json().catch(() => ({}));
+          throw new Error(err.detail || 'HTTP ' + r.status);
+        }
+        const data = await r.json();
+        if (this.data && this.data.client) this.data.client.personality = data.profile;
+        this.editingPersonality = false;
+      } catch(e) { alert('저장 실패: ' + e.message); }
+      finally { this.savingPersonality = false; }
+    },
+
+    // ⑪ v3.5.0: 고객 정보 카드 이미지 다운로드
+    downloadInfoCard() {
+      const canvas = document.getElementById('infoCardCanvas');
+      const W = 600, H = 340;
+      canvas.width = W; canvas.height = H;
+      const ctx = canvas.getContext('2d');
+      // 배경 그라디언트
+      const grad = ctx.createLinearGradient(0, 0, W, H);
+      grad.addColorStop(0, '#1e3a5f');
+      grad.addColorStop(1, '#2563eb');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, W, H);
+      // 흰색 텍스트
+      ctx.fillStyle = 'white';
+      // 상단 레이블
+      ctx.font = '11px "Segoe UI", sans-serif';
+      ctx.globalAlpha = 0.65;
+      ctx.fillText('InterioNote', 24, 36);
+      ctx.globalAlpha = 1.0;
+      // 고객 이름
+      const name = (this.data && this.data.client && this.data.client.name) || '고객명';
+      ctx.font = 'bold 28px "Malgun Gothic", "Segoe UI", sans-serif';
+      ctx.fillText(name, 24, 72);
+      // 설명
+      const desc = (this.data && this.data.client && this.data.client.descriptor) || '';
+      if (desc) {
+        ctx.font = '14px "Segoe UI", sans-serif';
+        ctx.globalAlpha = 0.75;
+        ctx.fillText('(' + desc + ')', 24, 95);
+        ctx.globalAlpha = 1.0;
+      }
+      // 구분선
+      ctx.globalAlpha = 0.25;
+      ctx.strokeStyle = 'white';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(24, 116); ctx.lineTo(W - 24, 116);
+      ctx.stroke();
+      ctx.globalAlpha = 1.0;
+      // 하단 정보 그리드
+      let x = 24, y = 140;
+      const fields = [];
+      const c = (this.data && this.data.client) || {};
+      if (c.phone) fields.push(['연락처', c.phone]);
+      fields.push(['단계', c.stage || '초도']);
+      if (c.visit_source) fields.push(['방문경로', c.visit_source]);
+      if (c.first_met_at) fields.push(['첫 상담', c.first_met_at.slice(0,10)]);
+      fields.forEach((f, i) => {
+        const col = i % 3, row = Math.floor(i / 3);
+        const cx = 24 + col * 192, cy = 140 + row * 70;
+        ctx.font = '10px "Segoe UI", sans-serif';
+        ctx.globalAlpha = 0.6;
+        ctx.fillText(f[0].toUpperCase(), cx, cy);
+        ctx.globalAlpha = 1.0;
+        ctx.font = '15px "Malgun Gothic", "Segoe UI", sans-serif';
+        ctx.fillText(f[1], cx, cy + 20);
+      });
+      // 우측 하단 날짜
+      const today = new Date().toLocaleDateString('ko-KR');
+      ctx.font = '10px "Segoe UI", sans-serif';
+      ctx.globalAlpha = 0.45;
+      ctx.textAlign = 'right';
+      ctx.fillText(today, W - 24, H - 20);
+      ctx.globalAlpha = 1.0;
+      ctx.textAlign = 'left';
+      // 다운로드
+      const link = document.createElement('a');
+      link.download = (name || '고객') + '_정보카드.png';
+      link.href = canvas.toDataURL('image/png');
+      link.click();
+    },
+
+    // ⑬ 이메일 초안
+    async openEmailDraft(meeting) {
+      this._emailMeetingId = meeting.id;
+      this.emailDraft = null;
+      this.emailState = 'idle';
+      this.emailError = '';
+      this.showEmailModal = true;
+      await this.generateEmailDraft();
+    },
+    async generateEmailDraft() {
+      if (!this._emailMeetingId) return;
+      this.emailState = 'running';
+      this.emailError = '';
+      this.emailDraft = null;
+      try {
+        const r = await fetch('/api/meetings/' + this._emailMeetingId + '/email-draft', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({tone: this.emailTone}),
+        });
+        if (!r.ok) {
+          const err = await r.json().catch(() => ({}));
+          throw new Error(err.detail || 'HTTP ' + r.status);
+        }
+        this.emailDraft = await r.json();
+        this.emailState = 'done';
+      } catch(e) {
+        this.emailError = 'AI 호출 실패: ' + e.message;
+        this.emailState = 'error';
+      }
+    },
+    copyEmail() {
+      if (!this.emailDraft) return;
+      const text = '[제목] ' + this.emailDraft.subject + '\n\n' + this.emailDraft.body;
+      navigator.clipboard.writeText(text).then(() => alert('클립보드에 복사됐습니다!'));
+    },
+
+    // ⑭ QR 코드 — v3.5.2: 서버에서 LAN IP 받아와서 스마트폰이 같은 WiFi 안에서 접속 가능한 URL 생성
+    // v3.5.3: 방화벽·바인딩 진단도 함께 표시
+    async openQr(meetingId) {
+      this.qrError = '';
+      this.qrUrlForDisplay = '';
+      this.qrDiagHint = '';
+      this.qrFirewallOK = null;
+      this.showQrModal = true;
+      // 1) LAN IP + port 조회 (스마트폰에서 접속 가능한 URL 만들기)
+      let urlBase = window.location.origin;  // 기본은 localhost (실패 시 폴백)
+      try {
+        const r = await fetch('/api/app/lan-info');
+        if (r.ok) {
+          const d = await r.json();
+          if (d.url_base) urlBase = d.url_base;
+          this.qrDiagHint = d.diag_hint || '';
+          this.qrFirewallOK = d.firewall_test === 'ok';
+        }
+      } catch(e) { /* 폴백 */ }
+      const targetUrl = urlBase + '/meetings/' + meetingId + '/print-summary';
+      this.qrUrlForDisplay = targetUrl;
+      // 2) 캔버스에 QR 그리기
+      this.$nextTick(() => {
+        try {
+          const canvas = document.getElementById('qrCanvas');
+          if (!canvas) { this.qrError = 'QR 캔버스를 찾을 수 없습니다.'; return; }
+          if (typeof QRious === 'undefined') { this.qrError = 'QR 라이브러리를 불러오지 못했습니다.'; return; }
+          new QRious({
+            element: canvas,
+            value: targetUrl,
+            size: 220,
+            backgroundAlpha: 1,
+            foreground: document.documentElement.classList.contains('dark') ? '#e5e7eb' : '#111827',
+            background: document.documentElement.classList.contains('dark') ? '#1f2937' : '#ffffff',
+          });
+        } catch(e) {
+          this.qrError = 'QR 생성 실패: ' + (e.message || e);
+        }
+      });
+    },
+
+    // v3.3.0 Phase 5: 폴더 빠른 열기
+    _openExplorer(path) {
+      if (!path) return;
+      if (window.pywebview && window.pywebview.api && window.pywebview.api.open_in_explorer) {
+        window.pywebview.api.open_in_explorer(path);
+      }
+    },
+    openClientFolder() {
+      this._openExplorer(this.data && this.data.client && this.data.client.folder_path);
+    },
+    openImageFolder() {
+      const fp = this.data && this.data.client && this.data.client.folder_path;
+      if (!fp) return;
+      this._openExplorer(fp + '\\현장 이미지');
+    },
+    openConsultFolder() {
+      const fp = this.data && this.data.client && this.data.client.folder_path;
+      if (!fp) return;
+      this._openExplorer(fp + '\\상담기록');
+    },
+  };
+}
+</script>
+  <script src="/static/remote_status_badge.js"></script>
+  <script src="/static/finalize_badge.js"></script>
+</body>
+</html>

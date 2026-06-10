@@ -6,6 +6,8 @@ __pycache__/
 # PyInstaller 빌드 산출물 (다른 PC 에서 build.bat 으로 재생성)
 build/
 dist/
+dist-cpu/
+dist-gpu/
 
 # Inno Setup 산출물 (재생성 가능)
 Output/

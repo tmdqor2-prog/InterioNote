@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>빠른 메모 · InterioNote</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = { darkMode: 'class' };
+    (function() {
+      try {
+        var t = localStorage.getItem('interionote.theme') || 'system';
+        var dark = (t === 'dark') ||
+          (t === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+        if (dark) document.documentElement.classList.add('dark');
+      } catch(e) {}
+    })();
+  </script>
+  <!-- v3.0.0 Phase 2: 인증 (fetch 오버라이드 + 즉시 토큰 확인) -->
+  <script>
+  (function(){
+    var _origFetch = window.fetch.bind(window);
+    window.fetch = async function(resource, opts){
+      opts = opts ? Object.assign({}, opts) : {};
+      if (typeof resource === 'string' && resource.startsWith('/api/')) {
+        var tok = localStorage.getItem('interionote.token');
+        if (tok) opts.headers = Object.assign({'Authorization': 'Bearer ' + tok}, opts.headers || {});
+      }
+      var r = await _origFetch(resource, opts);
+      if (r.status === 401 && window.location.pathname !== '/login') {
+        localStorage.removeItem('interionote.token');
+        localStorage.removeItem('interionote.user');
+        window.location.replace('/login');
+      }
+      return r;
+    };
+    if (window.location.pathname !== '/login') {
+      var tok = localStorage.getItem('interionote.token');
+      if (!tok) { window.location.replace('/login'); return; }
+      try {
+        var p = JSON.parse(atob(tok.split('.')[1].replace(/-/g,'+').replace(/_/g,'/')));
+        if (p.exp && Date.now()/1000 > p.exp) {
+          localStorage.removeItem('interionote.token');
+          localStorage.removeItem('interionote.user');
+          window.location.replace('/login');
+        }
+      } catch(e) {}
+    }
+    window.getAuthUser = function(){
+      try { return JSON.parse(localStorage.getItem('interionote.user') || 'null'); } catch(e){ return null; }
+    };
+    window.logoutUser = function(){
+      localStorage.removeItem('interionote.token');
+      localStorage.removeItem('interionote.user');
+      window.location.replace('/login');
+    };
+  })();
+  </script>
+  <script defer src="https://unpkg.com/alpinejs@3.14.1/dist/cdn.min.js"></script>
+  <style>
+    body { font-family: 'Segoe UI', 'Malgun Gothic', system-ui, sans-serif; }
+    [x-cloak] { display: none !important; }
+    /* v2.5.4 다크모드 보강 — 액센트 박스를 더 어둡게 + 텍스트 contrast 강화 */
+    html.dark code { color: #f3f4f6; background-color: #374151; }
+    html.dark kbd { color: #f3f4f6; background-color: #374151; border-color: #4b5563; }
+    html.dark input, html.dark select, html.dark textarea { color-scheme: dark; }
+    html.dark input::placeholder, html.dark textarea::placeholder { color: #9ca3af; }
+    html.dark ::-webkit-scrollbar { background: #1f2937; }
+    html.dark ::-webkit-scrollbar-thumb { background: #4b5563; border-radius: 4px; }
+    html.dark ::-webkit-scrollbar-thumb:hover { background: #6b7280; }
+
+    /* 다크모드에서 너무 밝게 보이던 50/100 액센트 배경들 — 강력 override */
+    html.dark .bg-amber-50  { background-color: rgba(120, 53, 15, 0.25) !important; }
+    html.dark .bg-amber-100 { background-color: rgba(120, 53, 15, 0.40) !important; }
+    html.dark .bg-blue-50   { background-color: rgba(30, 58, 138, 0.25) !important; }
+    html.dark .bg-blue-100  { background-color: rgba(30, 58, 138, 0.40) !important; }
+    html.dark .bg-indigo-50 { background-color: rgba(49, 46, 129, 0.25) !important; }
+    html.dark .bg-emerald-50  { background-color: rgba(6, 78, 59, 0.30) !important; }
+    html.dark .bg-emerald-100 { background-color: rgba(6, 78, 59, 0.45) !important; }
+    html.dark .bg-green-50  { background-color: rgba(20, 83, 45, 0.30) !important; }
+    html.dark .bg-green-100 { background-color: rgba(20, 83, 45, 0.45) !important; }
+    html.dark .bg-red-50    { background-color: rgba(127, 29, 29, 0.25) !important; }
+    html.dark .bg-red-100   { background-color: rgba(127, 29, 29, 0.40) !important; }
+    html.dark .bg-purple-50 { background-color: rgba(76, 29, 149, 0.25) !important; }
+    html.dark .bg-purple-100 { background-color: rgba(76, 29, 149, 0.40) !important; }
+    html.dark .bg-yellow-50 { background-color: rgba(113, 63, 18, 0.25) !important; }
+
+    /* 액센트 박스 안의 텍스트 contrast 강화 — 어두운 배경 위 밝은 텍스트 */
+    html.dark .text-amber-900,
+    html.dark .text-amber-800,
+    html.dark .text-amber-700 { color: #fde68a !important; }   /* amber-200 */
+    html.dark .text-blue-900,
+    html.dark .text-blue-800 { color: #bfdbfe !important; }    /* blue-200 */
+    html.dark .text-blue-700 { color: #93c5fd !important; }    /* blue-300 */
+    html.dark .text-emerald-900,
+    html.dark .text-emerald-800 { color: #a7f3d0 !important; } /* emerald-200 */
+    html.dark .text-emerald-700 { color: #6ee7b7 !important; } /* emerald-300 */
+    html.dark .text-green-900,
+    html.dark .text-green-800 { color: #bbf7d0 !important; }   /* green-200 */
+    html.dark .text-green-700 { color: #86efac !important; }   /* green-300 */
+    html.dark .text-red-900,
+    html.dark .text-red-800 { color: #fecaca !important; }     /* red-200 */
+    html.dark .text-red-700 { color: #fca5a5 !important; }     /* red-300 */
+    html.dark .text-purple-900,
+    html.dark .text-purple-800 { color: #e9d5ff !important; }  /* purple-200 */
+    html.dark .text-indigo-900 { color: #c7d2fe !important; }
+
+    /* 일반 회색 텍스트 — 어두운 카드 위에서 더 밝게 */
+    html.dark .text-gray-900 { color: #f3f4f6 !important; }
+    html.dark .text-gray-800 { color: #e5e7eb !important; }
+    html.dark .text-gray-700 { color: #d1d5db !important; }
+    html.dark .text-gray-600 { color: #9ca3af !important; }
+    html.dark .text-gray-500 { color: #9ca3af !important; }
+    html.dark .text-gray-400 { color: #6b7280 !important; }
+
+    /* 액센트 border 도 더 옅게 (눈부심 방지) */
+    html.dark .border-amber-200,
+    html.dark .border-amber-300 { border-color: rgba(180, 83, 9, 0.50) !important; }
+    html.dark .border-blue-200,
+    html.dark .border-blue-300 { border-color: rgba(29, 78, 216, 0.50) !important; }
+    html.dark .border-emerald-200,
+    html.dark .border-emerald-300 { border-color: rgba(5, 150, 105, 0.50) !important; }
+    html.dark .border-red-200,
+    html.dark .border-red-300 { border-color: rgba(220, 38, 38, 0.50) !important; }
+    html.dark .border-green-200,
+    html.dark .border-green-300 { border-color: rgba(22, 163, 74, 0.50) !important; }
+  </style>
+</head>
+<body class="bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100">
+
+<div x-data="quickNotePage()" x-init="init()" class="min-h-screen">
+
+  <header class="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 sticky top-0 z-10">
+    <div class="max-w-2xl mx-auto px-6 py-3 flex items-center justify-between gap-3">
+      <div class="flex items-center gap-3 min-w-0">
+        <a href="/" class="text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 shrink-0">← 홈</a>
+        <h1 class="text-lg font-bold flex items-center gap-2 dark:text-gray-100">🎙 빠른 음성 메모</h1>
+      </div>
+      <!-- v2.5.6 O2: Ollama 가용성 미니 배지 -->
+      <a href="/settings"
+         class="flex items-center gap-1 px-1.5 py-0.5 border border-gray-200 dark:border-gray-700 rounded hover:bg-gray-50 dark:hover:bg-gray-700 transition shrink-0"
+         :title="ollamaState === 'ok' ? 'AI 분석 준비 완료'
+               : ollamaState === 'no_model' ? 'Ollama 모델 없음 — 설정 확인'
+               : ollamaState === 'no_ollama' ? 'Ollama 미설치 — 설정 확인'
+               : '확인 중...'">
+        <span class="w-2 h-2 rounded-full"
+              :class="{
+                'bg-emerald-500': ollamaState === 'ok',
+                'bg-amber-500': ollamaState === 'no_model',
+                'bg-red-500': ollamaState === 'no_ollama',
+                'bg-gray-300 animate-pulse': ollamaState === 'checking'
+              }"></span>
+        <span class="text-[11px] text-gray-600 dark:text-gray-300">AI</span>
+      </a>
+    </div>
+  </header>
+
+  <main class="max-w-2xl mx-auto px-6 py-6 space-y-4">
+    <div class="bg-amber-50 dark:bg-amber-900/30 border border-amber-200 dark:border-amber-700 rounded-lg p-3 text-sm text-amber-900 dark:text-amber-200">
+      💡 짧은 음성 메모용. 고객 폴더에 저장되지 않고 임시 캐시 폴더 (%LOCALAPPDATA%\InterioNote\temp_recording) 에 저장됩니다.
+      나중에 고객 폴더로 옮기시려면 그 위치에서 직접 파일을 가져가시면 됩니다.
+    </div>
+
+    <!-- setup mode -->
+    <section x-show="mode === 'setup'" x-cloak class="space-y-4">
+      <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-5">
+        <div class="text-sm font-semibold mb-2">🎙 마이크 선택</div>
+        <select x-model="deviceId" class="w-full px-2 py-1.5 border border-gray-300 dark:border-gray-600 dark:bg-gray-900 rounded text-sm">
+          <option :value="null">기본 마이크</option>
+          <template x-for="d in devices" :key="d.id">
+            <option :value="d.id" x-text="d.name + ' (' + d.channels + 'ch · ' + d.default_samplerate + 'Hz)'"></option>
+          </template>
+        </select>
+      </div>
+
+      <!-- ⑲ v3.5.0: 텍스트 메모 영역 -->
+      <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-5">
+        <div class="text-sm font-semibold mb-2">📝 텍스트 메모 <span class="text-xs text-gray-400 font-normal">(선택 — 녹음 전/후 자유롭게 입력)</span></div>
+        <textarea x-model="textMemo"
+                  placeholder="고객 이름, 논의할 내용, 현장 메모 등 자유롭게..."
+                  rows="4"
+                  class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 rounded resize-y focus:outline-none focus:border-blue-500"></textarea>
+      </div>
+
+      <button @click="start()" :disabled="starting"
+              class="w-full py-4 bg-red-600 hover:bg-red-700 text-white text-lg font-bold rounded-xl shadow-sm transition disabled:bg-gray-300">
+        <span x-show="!starting">● 메모 시작</span>
+        <span x-show="starting">시작 중...</span>
+      </button>
+      <div x-show="errorMsg" x-cloak class="bg-red-50 border border-red-300 dark:border-red-700 text-red-900 dark:text-red-200 rounded p-3 text-sm" x-text="errorMsg"></div>
+    </section>
+
+    <!-- recording -->
+    <section x-show="mode === 'recording'" x-cloak class="space-y-4">
+      <div class="bg-red-50 dark:bg-red-900/30 border border-red-300 dark:border-red-700 rounded-xl p-5">
+        <div class="text-lg font-bold text-red-900 dark:text-red-200 flex items-center gap-2">
+          <span class="inline-block w-3 h-3 bg-red-600 rounded-full animate-pulse"></span>
+          녹음 중 — <span x-text="formatTime(elapsed)"></span>
+        </div>
+      </div>
+      <!-- ⑲ 텍스트 메모 — 녹음 중에도 편집 가능 -->
+      <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
+        <div class="text-xs font-semibold text-gray-500 dark:text-gray-400 mb-1.5">📝 텍스트 메모</div>
+        <textarea x-model="textMemo"
+                  placeholder="녹음 중에도 메모를 입력할 수 있습니다..."
+                  rows="3"
+                  class="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 rounded resize-y focus:outline-none focus:border-blue-500"></textarea>
+      </div>
+      <button @click="stop()" :disabled="stopping"
+              class="w-full py-4 bg-gray-700 hover:bg-gray-800 text-white text-lg font-bold rounded-xl">
+        <span x-show="!stopping">⏹ 메모 종료 + 저장</span>
+        <span x-show="stopping">저장 중...</span>
+      </button>
+    </section>
+
+    <!-- finished -->
+    <section x-show="mode === 'finished'" x-cloak class="space-y-4">
+      <div class="bg-emerald-50 dark:bg-emerald-900/30 border border-emerald-300 dark:border-emerald-700 rounded-xl p-5">
+        <div class="text-lg font-bold text-emerald-900 dark:text-emerald-200">✅ 메모 저장 완료</div>
+        <div class="text-sm mt-2 dark:text-emerald-200">
+          <div>소요 시간: <strong x-text="formatTime(finalResult.duration_sec || 0)"></strong></div>
+          <div>전사 카드: <strong x-text="(finalResult.segments_count || 0) + '건'"></strong></div>
+        </div>
+      </div>
+
+      <!-- ⑲ 텍스트 메모 표시 -->
+      <template x-if="textMemo && textMemo.trim()">
+        <div class="bg-amber-50 dark:bg-amber-900/30 border border-amber-200 dark:border-amber-700 rounded-xl p-4">
+          <div class="flex items-center justify-between mb-2">
+            <div class="text-sm font-semibold text-amber-900 dark:text-amber-200">📝 텍스트 메모</div>
+            <button @click="textMemo = ''" class="text-xs text-gray-400 hover:text-red-500">🗑 지우기</button>
+          </div>
+          <pre class="text-sm text-amber-900 dark:text-amber-100 whitespace-pre-wrap font-sans" x-text="textMemo"></pre>
+        </div>
+      </template>
+
+      <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
+        <div class="text-sm font-semibold mb-2">📁 저장 위치</div>
+        <code class="text-xs font-mono break-all dark:text-gray-200" x-text="finalResult.wav_path"></code>
+        <div class="text-[11px] text-gray-500 dark:text-gray-400 mt-2">
+          이 wav 파일을 직접 옮기거나, 위 경로 폴더를 열어 mp3 가 있는지 확인하세요.
+        </div>
+      </div>
+
+      <!-- 전사 + 텍스트 메모 전체 복사 -->
+      <div class="flex gap-2">
+        <button @click="copyAll()"
+                class="flex-1 py-2.5 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 dark:text-gray-100 text-sm rounded-xl transition">
+          📋 전체 복사 (전사 + 메모)
+        </button>
+        <span x-show="copyDone" x-cloak class="flex items-center text-xs text-emerald-600 dark:text-emerald-400 px-2">✅ 복사됨</span>
+      </div>
+
+      <ul class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl divide-y divide-gray-100 dark:divide-gray-700 max-h-80 overflow-y-auto">
+        <template x-for="s in (finalResult.segments || [])" :key="s.id">
+          <li class="px-4 py-2 text-sm dark:text-gray-100">
+            <span class="text-xs text-gray-400 font-mono mr-2" x-text="formatTime(s.start_ms/1000)"></span>
+            <span x-text="s.text"></span>
+          </li>
+        </template>
+      </ul>
+      <button @click="reset()" class="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl">
+        새 메모 시작
+      </button>
+    </section>
+  </main>
+</div>
+
+<script>
+function quickNotePage() {
+  return {
+    mode: 'setup',
+    devices: [],
+    deviceId: null,
+    starting: false,
+    stopping: false,
+    elapsed: 0,
+    _timer: null,
+    finalResult: {},
+    errorMsg: '',
+    // ⑲ v3.5.0: 텍스트 메모
+    textMemo: '',
+    copyDone: false,
+
+    // v2.5.6 O2: Ollama 가용성 (헤더 배지)
+    ollamaState: 'checking',
+    ollamaInfo: null,
+
+    async init() {
+      this.checkOllamaHealth();  // 백그라운드
+      try {
+        const r = await fetch('/api/audio/devices');
+        const d = await r.json();
+        this.devices = d.input_devices || [];
+        if (d.default_input_id != null) this.deviceId = d.default_input_id;
+      } catch(e) {}
+    },
+    async checkOllamaHealth() {
+      try {
+        const r = await fetch('/api/ollama/health');
+        const data = await r.json().catch(() => null);
+        if (!data) { this.ollamaState = 'no_ollama'; return; }
+        this.ollamaInfo = data;
+        if (!data.ok) this.ollamaState = 'no_ollama';
+        else if (!data.model_ready) this.ollamaState = 'no_model';
+        else this.ollamaState = 'ok';
+      } catch (e) { this.ollamaState = 'no_ollama'; }
+    },
+
+    async start() {
+      this.starting = true;
+      this.errorMsg = '';
+      try {
+        const body = {device_id: this.deviceId};
+        const r = await fetch('/api/recording/start', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify(body),
+        });
+        if (!r.ok) {
+          const err = await r.json().catch(() => ({detail: r.statusText}));
+          throw new Error(err.detail || '시작 실패');
+        }
+        await r.json();
+        this.mode = 'recording';
+        this.elapsed = 0;
+        this._timer = setInterval(() => { this.elapsed += 1; }, 1000);
+      } catch(e) {
+        this.errorMsg = e.message || String(e);
+      } finally {
+        this.starting = false;
+      }
+    },
+
+    async stop() {
+      this.stopping = true;
+      if (this._timer) { clearInterval(this._timer); this._timer = null; }
+      try {
+        const r = await fetch('/api/recording/stop', {method: 'POST'});
+        if (!r.ok) throw new Error('종료 실패');
+        this.finalResult = await r.json();
+        this.mode = 'finished';
+      } catch(e) {
+        this.errorMsg = e.message || String(e);
+        this.mode = 'setup';
+      } finally {
+        this.stopping = false;
+      }
+    },
+
+    reset() {
+      this.mode = 'setup';
+      this.elapsed = 0;
+      this.finalResult = {};
+      this.errorMsg = '';
+      this.textMemo = '';
+      this.copyDone = false;
+    },
+
+    // ⑲ v3.5.0: 전사 + 텍스트 메모 전체 복사
+    async copyAll() {
+      const segments = this.finalResult.segments || [];
+      let text = '';
+      if (segments.length > 0) {
+        text += '【음성 전사】\n';
+        text += segments.map(s => {
+          const t = this.formatTime(Math.round(s.start_ms / 1000));
+          return `[${t}] ${s.text}`;
+        }).join('\n');
+      }
+      if (this.textMemo && this.textMemo.trim()) {
+        if (text) text += '\n\n';
+        text += '【메모】\n' + this.textMemo.trim();
+      }
+      if (!text) return;
+      try {
+        await navigator.clipboard.writeText(text);
+        this.copyDone = true;
+        setTimeout(() => { this.copyDone = false; }, 2000);
+      } catch (e) {}
+    },
+
+    formatTime(sec) {
+      sec = Math.max(0, Math.floor(sec));
+      const m = Math.floor(sec / 60);
+      const s = sec % 60;
+      return String(m).padStart(2,'0') + ':' + String(s).padStart(2,'0');
+    },
+  };
+}
+</script>
+  <script src="/static/remote_status_badge.js"></script>
+  <script src="/static/finalize_badge.js"></script>
+</body>
+</html>

@@ -5,33 +5,180 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>InterioNote</title>
   <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    // v2.5.0 dark mode
+    tailwind.config = { darkMode: 'class' };
+    (function() {
+      try {
+        var t = localStorage.getItem('interionote.theme') || 'system';
+        var dark = (t === 'dark') ||
+          (t === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+        if (dark) document.documentElement.classList.add('dark');
+      } catch(e) {}
+    })();
+  </script>
+  <!-- v3.0.0 Phase 2: 인증 (fetch 오버라이드 + 즉시 토큰 확인) -->
+  <script>
+  (function(){
+    var _origFetch = window.fetch.bind(window);
+    window.fetch = async function(resource, opts){
+      opts = opts ? Object.assign({}, opts) : {};
+      if (typeof resource === 'string' && resource.startsWith('/api/')) {
+        var tok = localStorage.getItem('interionote.token');
+        if (tok) opts.headers = Object.assign({'Authorization': 'Bearer ' + tok}, opts.headers || {});
+      }
+      var r = await _origFetch(resource, opts);
+      if (r.status === 401 && window.location.pathname !== '/login') {
+        localStorage.removeItem('interionote.token');
+        localStorage.removeItem('interionote.user');
+        window.location.replace('/login');
+      }
+      return r;
+    };
+    if (window.location.pathname !== '/login') {
+      var tok = localStorage.getItem('interionote.token');
+      if (!tok) { window.location.replace('/login'); return; }
+      try {
+        var p = JSON.parse(atob(tok.split('.')[1].replace(/-/g,'+').replace(/_/g,'/')));
+        if (p.exp && Date.now()/1000 > p.exp) {
+          localStorage.removeItem('interionote.token');
+          localStorage.removeItem('interionote.user');
+          window.location.replace('/login');
+        }
+      } catch(e) {}
+    }
+    window.getAuthUser = function(){
+      try { return JSON.parse(localStorage.getItem('interionote.user') || 'null'); } catch(e){ return null; }
+    };
+    window.logoutUser = function(){
+      localStorage.removeItem('interionote.token');
+      localStorage.removeItem('interionote.user');
+      window.location.replace('/login');
+    };
+  })();
+  </script>
   <script defer src="https://unpkg.com/alpinejs@3.14.1/dist/cdn.min.js"></script>
   <style>
     body { font-family: 'Segoe UI', 'Malgun Gothic', system-ui, sans-serif; }
     [x-cloak] { display: none !important; }
+    /* v2.5.4 다크모드 보강 — 액센트 박스를 더 어둡게 + 텍스트 contrast 강화 */
+    html.dark code { color: #f3f4f6; background-color: #374151; }
+    html.dark kbd { color: #f3f4f6; background-color: #374151; border-color: #4b5563; }
+    html.dark input, html.dark select, html.dark textarea { color-scheme: dark; }
+    html.dark input::placeholder, html.dark textarea::placeholder { color: #9ca3af; }
+    html.dark ::-webkit-scrollbar { background: #1f2937; }
+    html.dark ::-webkit-scrollbar-thumb { background: #4b5563; border-radius: 4px; }
+    html.dark ::-webkit-scrollbar-thumb:hover { background: #6b7280; }
+
+    /* 다크모드에서 너무 밝게 보이던 50/100 액센트 배경들 — 강력 override */
+    html.dark .bg-amber-50  { background-color: rgba(120, 53, 15, 0.25) !important; }
+    html.dark .bg-amber-100 { background-color: rgba(120, 53, 15, 0.40) !important; }
+    html.dark .bg-blue-50   { background-color: rgba(30, 58, 138, 0.25) !important; }
+    html.dark .bg-blue-100  { background-color: rgba(30, 58, 138, 0.40) !important; }
+    html.dark .bg-indigo-50 { background-color: rgba(49, 46, 129, 0.25) !important; }
+    html.dark .bg-emerald-50  { background-color: rgba(6, 78, 59, 0.30) !important; }
+    html.dark .bg-emerald-100 { background-color: rgba(6, 78, 59, 0.45) !important; }
+    html.dark .bg-green-50  { background-color: rgba(20, 83, 45, 0.30) !important; }
+    html.dark .bg-green-100 { background-color: rgba(20, 83, 45, 0.45) !important; }
+    html.dark .bg-red-50    { background-color: rgba(127, 29, 29, 0.25) !important; }
+    html.dark .bg-red-100   { background-color: rgba(127, 29, 29, 0.40) !important; }
+    html.dark .bg-purple-50 { background-color: rgba(76, 29, 149, 0.25) !important; }
+    html.dark .bg-purple-100 { background-color: rgba(76, 29, 149, 0.40) !important; }
+    html.dark .bg-yellow-50 { background-color: rgba(113, 63, 18, 0.25) !important; }
+
+    /* 액센트 박스 안의 텍스트 contrast 강화 — 어두운 배경 위 밝은 텍스트 */
+    html.dark .text-amber-900,
+    html.dark .text-amber-800,
+    html.dark .text-amber-700 { color: #fde68a !important; }   /* amber-200 */
+    html.dark .text-blue-900,
+    html.dark .text-blue-800 { color: #bfdbfe !important; }    /* blue-200 */
+    html.dark .text-blue-700 { color: #93c5fd !important; }    /* blue-300 */
+    html.dark .text-emerald-900,
+    html.dark .text-emerald-800 { color: #a7f3d0 !important; } /* emerald-200 */
+    html.dark .text-emerald-700 { color: #6ee7b7 !important; } /* emerald-300 */
+    html.dark .text-green-900,
+    html.dark .text-green-800 { color: #bbf7d0 !important; }   /* green-200 */
+    html.dark .text-green-700 { color: #86efac !important; }   /* green-300 */
+    html.dark .text-red-900,
+    html.dark .text-red-800 { color: #fecaca !important; }     /* red-200 */
+    html.dark .text-red-700 { color: #fca5a5 !important; }     /* red-300 */
+    html.dark .text-purple-900,
+    html.dark .text-purple-800 { color: #e9d5ff !important; }  /* purple-200 */
+    html.dark .text-indigo-900 { color: #c7d2fe !important; }
+
+    /* 일반 회색 텍스트 — 어두운 카드 위에서 더 밝게 */
+    html.dark .text-gray-900 { color: #f3f4f6 !important; }
+    html.dark .text-gray-800 { color: #e5e7eb !important; }
+    html.dark .text-gray-700 { color: #d1d5db !important; }
+    html.dark .text-gray-600 { color: #9ca3af !important; }
+    html.dark .text-gray-500 { color: #9ca3af !important; }
+    html.dark .text-gray-400 { color: #6b7280 !important; }
+
+    /* 액센트 border 도 더 옅게 (눈부심 방지) */
+    html.dark .border-amber-200,
+    html.dark .border-amber-300 { border-color: rgba(180, 83, 9, 0.50) !important; }
+    html.dark .border-blue-200,
+    html.dark .border-blue-300 { border-color: rgba(29, 78, 216, 0.50) !important; }
+    html.dark .border-emerald-200,
+    html.dark .border-emerald-300 { border-color: rgba(5, 150, 105, 0.50) !important; }
+    html.dark .border-red-200,
+    html.dark .border-red-300 { border-color: rgba(220, 38, 38, 0.50) !important; }
+    html.dark .border-green-200,
+    html.dark .border-green-300 { border-color: rgba(22, 163, 74, 0.50) !important; }
   </style>
 </head>
-<body class="bg-gray-50 text-gray-900">
+<body class="bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100">
 
 <div x-data="homePage()" x-init="init()" class="min-h-screen">
 
   <!-- 헤더 -->
-  <header class="bg-white border-b border-gray-200 sticky top-0 z-10">
+  <header class="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 sticky top-0 z-10">
     <div class="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
       <div class="flex items-center gap-3">
         <span class="text-2xl">🏠</span>
         <h1 class="text-xl font-bold">InterioNote</h1>
-        <span class="px-2 py-0.5 rounded-full bg-green-100 text-green-700 text-xs font-medium cursor-pointer"
+        <span class="px-2 py-0.5 rounded-full bg-green-100 dark:bg-green-800/40 text-green-700 dark:text-green-300 text-xs font-medium cursor-pointer"
               @click="showWelcome = true"
               title="앱 정보 / 변경 이력 보기">
           ● 실행 중 v<span x-text="appVersion"></span>
         </span>
       </div>
       <div class="flex items-center gap-2">
-        <a href="/settings" class="text-sm text-gray-500 hover:text-gray-900 px-3 py-1.5 rounded hover:bg-gray-100">
+        <a href="/search" class="text-sm text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:text-gray-500 dark:hover:text-gray-100 px-3 py-1.5 rounded hover:bg-gray-100 dark:bg-gray-700 dark:hover:bg-gray-700"
+           title="모든 상담의 전사·메모·AI 분석 통합 검색">
+          🔎 검색
+        </a>
+        <a href="/quick-note" class="text-sm text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:text-gray-500 dark:hover:text-gray-100 px-3 py-1.5 rounded hover:bg-gray-100 dark:bg-gray-700 dark:hover:bg-gray-700"
+           title="짧은 음성 메모 (고객 폴더 안 만듦)">
+          🎙 빠른 메모
+        </a>
+        <a href="/stats" class="text-sm text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:text-gray-500 dark:hover:text-gray-100 px-3 py-1.5 rounded hover:bg-gray-100 dark:bg-gray-700 dark:hover:bg-gray-700">
+          📊 통계
+        </a>
+        <!-- v3.5.7: 영업 대시보드 -->
+        <a href="/sales" class="text-sm text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:text-gray-500 dark:hover:text-gray-100 px-3 py-1.5 rounded hover:bg-gray-100 dark:bg-gray-700 dark:hover:bg-gray-700">
+          💼 영업
+        </a>
+        <!-- v2.5.6 O2: Ollama 가용성 미니 배지 (클릭 시 설정 페이지로 — 자세한 가이드) -->
+        <a href="/settings"
+           class="flex items-center gap-1 px-2 py-1 border border-gray-200 dark:border-gray-700 rounded hover:bg-gray-50 dark:hover:bg-gray-700 transition"
+           :title="ollamaState === 'ok' ? 'AI 분석 준비 완료 (Ollama 정상)'
+                 : ollamaState === 'no_model' ? 'Ollama 모델 없음 — 설정에서 안내 확인'
+                 : ollamaState === 'no_ollama' ? 'Ollama 미설치 — 설정에서 설치 안내 확인'
+                 : '확인 중...'">
+          <span class="w-2 h-2 rounded-full"
+                :class="{
+                  'bg-emerald-500': ollamaState === 'ok',
+                  'bg-amber-500': ollamaState === 'no_model',
+                  'bg-red-500': ollamaState === 'no_ollama',
+                  'bg-gray-300 animate-pulse': ollamaState === 'checking'
+                }"></span>
+          <span class="text-xs text-gray-600 dark:text-gray-300">AI</span>
+        </a>
+        <a href="/settings" class="text-sm text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:text-gray-500 dark:hover:text-gray-100 px-3 py-1.5 rounded hover:bg-gray-100 dark:bg-gray-700 dark:hover:bg-gray-700">
           ⚙️ 설정
         </a>
-        <button @click="reload()" class="text-sm text-gray-500 hover:text-gray-900 px-3 py-1.5 rounded hover:bg-gray-100">
+        <button @click="reload()" class="text-sm text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:text-gray-500 dark:hover:text-gray-100 px-3 py-1.5 rounded hover:bg-gray-100 dark:bg-gray-700 dark:hover:bg-gray-700">
           🔄 새로고침
         </button>
       </div>
@@ -43,109 +190,308 @@
     <!-- Phase 2 테스트 진입 (상담/고객 연결 없이 파이프라인만 검증) -->
     <section class="mb-4">
       <a href="/live"
-        class="block bg-amber-50 hover:bg-amber-100 border border-amber-300 rounded-xl p-4 transition">
+        class="block bg-amber-50 dark:bg-amber-900/20 hover:bg-amber-100 border border-amber-300 dark:border-amber-700 rounded-xl p-4 transition">
         <div class="flex items-center justify-between">
           <div class="flex items-center gap-3">
             <span class="text-2xl">🧪</span>
             <div>
-              <div class="font-semibold text-amber-900">Phase 2 테스트 — 실시간 녹음·전사</div>
-              <div class="text-xs text-amber-800">
-                VAD + Whisper 파이프라인 검증 (고객 선택 없이 단독 테스트)
+              <div class="font-semibold text-amber-900 dark:text-amber-200">테스트 — 실시간 녹음·전사</div>
+              <div class="text-xs text-amber-800 dark:text-amber-300">
+                고객 선택 없이 마이크와 인식 정확도만 빠르게 점검
               </div>
             </div>
           </div>
-          <span class="text-amber-700">→</span>
+          <span class="text-amber-700 dark:text-amber-300">→</span>
         </div>
       </a>
     </section>
 
-    <!-- 첫 화면: 신규 vs 기존 선택 -->
-    <section class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
+    <!-- 첫 화면: 신규 vs 기존 vs 외부 파일 -->
+    <section class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
       <!-- 새 고객 -->
       <button @click="startNewClient()"
-        class="group bg-white hover:bg-blue-50 border-2 border-dashed border-gray-300 hover:border-blue-400 rounded-2xl p-8 text-left transition">
+        class="group bg-white hover:bg-blue-50 dark:bg-blue-900/30 border-2 border-dashed border-gray-300 dark:border-gray-600 hover:border-blue-400 rounded-2xl p-8 text-left transition">
         <div class="flex items-center gap-3 mb-3">
           <span class="text-3xl">✨</span>
           <h2 class="text-xl font-bold">새 고객 상담 시작</h2>
         </div>
-        <p class="text-sm text-gray-600 leading-relaxed">
+        <p class="text-sm text-gray-600 dark:text-gray-300 leading-relaxed">
           처음 상담하는 고객입니다. 폴더와 하위 폴더
-          (<code class="text-xs bg-gray-100 px-1 rounded">ETC / 렌더이미지_요청 / 제안서 관련 / 현장 이미지 / 휴지통 / 상담기록</code>)를
+          (<code class="text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">ETC / 렌더이미지_요청 / 제안서 관련 / 현장 이미지 / 휴지통 / 상담기록</code>)를
           자동 생성합니다.
         </p>
-        <div class="mt-3 text-xs text-blue-600 font-medium opacity-0 group-hover:opacity-100 transition">
+        <div class="mt-3 text-xs text-blue-600 dark:text-blue-400 font-medium opacity-0 group-hover:opacity-100 transition">
           → 클릭해서 시작
         </div>
       </button>
 
       <!-- 기존 고객 -->
       <button @click="openPicker()"
-        class="group bg-white hover:bg-green-50 border-2 border-dashed border-gray-300 hover:border-green-400 rounded-2xl p-8 text-left transition">
+        class="group bg-white hover:bg-green-50 dark:bg-green-900/30 border-2 border-dashed border-gray-300 dark:border-gray-600 hover:border-green-400 rounded-2xl p-8 text-left transition">
         <div class="flex items-center gap-3 mb-3">
           <span class="text-3xl">📂</span>
           <h2 class="text-xl font-bold">기존 고객 상담 이어가기</h2>
         </div>
-        <p class="text-sm text-gray-600 leading-relaxed">
+        <p class="text-sm text-gray-600 dark:text-gray-300 leading-relaxed">
           이미 폴더가 있는 고객입니다. 해당 고객의
-          <code class="text-xs bg-gray-100 px-1 rounded">상담기록</code> 폴더 안에 새 상담 건이 추가됩니다.
+          <code class="text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">상담기록</code> 폴더 안에 새 상담 건이 추가됩니다.
           총 <strong x-text="clients.length"></strong>명 등록됨.
         </p>
-        <div class="mt-3 text-xs text-green-700 font-medium opacity-0 group-hover:opacity-100 transition">
+        <div class="mt-3 text-xs text-green-700 dark:text-green-300 font-medium opacity-0 group-hover:opacity-100 transition">
           → 목록에서 선택
+        </div>
+      </button>
+
+      <!-- v3.5.5: 외부 음성 파일에서 상담 만들기 -->
+      <button @click="openAudioImport()"
+        class="group bg-white hover:bg-purple-50 dark:bg-purple-900/30 border-2 border-dashed border-gray-300 dark:border-gray-600 hover:border-purple-400 rounded-2xl p-8 text-left transition">
+        <div class="flex items-center gap-3 mb-3">
+          <span class="text-3xl">🎙</span>
+          <h2 class="text-xl font-bold">외부 녹음으로 상담 만들기</h2>
+        </div>
+        <p class="text-sm text-gray-600 dark:text-gray-300 leading-relaxed">
+          iPhone 음성메모, 외부 녹음기 등에서 만든 mp3·m4a·wav 파일을 가져와서
+          새 상담으로 등록합니다. 그 후 데스크톱에서 재전사·AI 분석.
+        </p>
+        <div class="mt-3 text-xs text-purple-700 dark:text-purple-300 font-medium opacity-0 group-hover:opacity-100 transition">
+          → 파일 선택
         </div>
       </button>
     </section>
 
-    <!-- 고객 검색 + 최근 고객 -->
-    <section class="bg-white rounded-xl shadow-sm border border-gray-200">
-      <div class="px-5 py-4 border-b border-gray-100 flex items-center justify-between gap-4">
-        <h3 class="font-semibold flex items-center gap-2">
-          <span>👥</span> 고객 목록
-          <span class="text-xs text-gray-400 font-normal">(<span x-text="filteredClients.length"></span> / <span x-text="clients.length"></span>명)</span>
+    <!-- ④ v3.5.0: 다가오는 일정 위젯 -->
+    <section x-show="appointments.length > 0" x-cloak class="mb-4 bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700">
+      <div class="px-5 py-3 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between">
+        <h3 class="font-semibold text-sm flex items-center gap-2 dark:text-gray-100">
+          <span>📅</span> 다가오는 일정
+          <span class="text-xs text-gray-400 dark:text-gray-500 font-normal">(<span x-text="appointments.length"></span>건)</span>
         </h3>
-        <input type="text" x-model="search" placeholder="이름·주소·단지명으로 검색..."
-          class="px-3 py-1.5 border border-gray-300 rounded-md text-sm w-72 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+      </div>
+      <div class="divide-y divide-gray-100 dark:divide-gray-700">
+        <template x-for="a in appointments" :key="a.id">
+          <div class="px-5 py-2.5 flex items-center gap-3">
+            <span class="text-xs font-bold px-2 py-0.5 rounded shrink-0"
+                  :class="ddayClass(a)"
+                  x-text="ddayLabel(a)"></span>
+            <div class="flex-1 min-w-0 cursor-pointer" @click="a.client_db_id && (window.location.href='/customer/'+a.client_db_id)">
+              <div class="font-medium text-sm truncate dark:text-gray-100" x-text="a.title"></div>
+              <div class="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-2">
+                <span class="font-medium text-gray-700 dark:text-gray-300" x-text="a.client_name"></span>
+                <span class="text-gray-300 dark:text-gray-600">·</span>
+                <span x-text="(a.scheduled_at || '').slice(0,16).replace('T',' ')"></span>
+              </div>
+            </div>
+            <button @click="completeAppointment(a.id)"
+                    class="shrink-0 text-xs px-2 py-1 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-900/30 dark:hover:bg-emerald-800/50 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-700 rounded">
+              ✓ 완료
+            </button>
+          </div>
+        </template>
+      </div>
+    </section>
+
+    <!-- ④-2 v3.5.0: 최근 완료된 일정 (완료 후 3일간 표시) -->
+    <section x-show="recentlyCompleted.length > 0" x-cloak class="mb-4 bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-emerald-200 dark:border-emerald-800">
+      <div class="px-5 py-3 border-b border-emerald-100 dark:border-emerald-800 flex items-center justify-between">
+        <h3 class="font-semibold text-sm flex items-center gap-2 text-emerald-800 dark:text-emerald-300">
+          <span>✅</span> 최근 완료된 일정
+          <span class="text-xs text-emerald-600 dark:text-emerald-400 font-normal">(완료 후 3일간 표시)</span>
+        </h3>
+      </div>
+      <div class="divide-y divide-emerald-50 dark:divide-emerald-900/30">
+        <template x-for="a in recentlyCompleted" :key="'done-'+a.id">
+          <div class="px-5 py-2.5 flex items-center gap-3">
+            <span class="text-xs text-emerald-600 dark:text-emerald-400 shrink-0">✓</span>
+            <div class="flex-1 min-w-0 cursor-pointer" @click="a.client_db_id && (window.location.href='/customer/'+a.client_db_id)">
+              <div class="text-sm text-gray-700 dark:text-gray-300 truncate" x-text="a.title"></div>
+              <div class="text-xs text-gray-400 dark:text-gray-500 flex items-center gap-2">
+                <span class="font-medium text-gray-600 dark:text-gray-400" x-text="a.client_name"></span>
+                <span class="text-gray-300 dark:text-gray-600">·</span>
+                <span x-text="(a.scheduled_at || '').slice(0,10)"></span>
+                <span x-show="a.completed_at" class="text-[10px] text-emerald-500" x-text="'완료: ' + (a.completed_at||'').slice(0,10)"></span>
+              </div>
+            </div>
+          </div>
+        </template>
+      </div>
+    </section>
+
+    <!-- 고객 검색 + 최근 고객 -->
+    <section class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700">
+      <div class="px-5 py-4 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between gap-4 flex-wrap">
+        <h3 class="font-semibold flex items-center gap-2 dark:text-gray-100">
+          <span>👥</span> 고객 목록
+          <span class="text-xs text-gray-400 dark:text-gray-500 font-normal">(<span x-text="filteredClients.length"></span> / <span x-text="clients.length"></span>명)</span>
+        </h3>
+        <div class="flex items-center gap-2 flex-wrap">
+          <!-- ① v3.5.0: 보기 전환 (목록 / 칸반) -->
+          <div class="flex rounded-md border border-gray-300 dark:border-gray-600 overflow-hidden text-sm">
+            <button @click="viewMode='list'"
+                    :class="viewMode==='list' ? 'bg-blue-600 text-white' : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'"
+                    class="px-3 py-1.5 transition" title="목록 보기">☰ 목록</button>
+            <button @click="viewMode='kanban'"
+                    :class="viewMode==='kanban' ? 'bg-blue-600 text-white' : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'"
+                    class="px-3 py-1.5 border-l border-gray-300 dark:border-gray-600 transition" title="칸반 보기">⬜ 칸반</button>
+          </div>
+          <input type="text" x-model="search" placeholder="이름·주소·단지명·전화번호로 검색..."
+            class="px-3 py-1.5 border border-gray-300 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 rounded-md text-sm w-56 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          <!-- v3.0.0: 단계 필터 (목록 보기에서만) -->
+          <select x-model="filterStage" x-show="viewMode==='list'"
+            class="px-2 py-1.5 border border-gray-300 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+            <option value="">전체 단계</option>
+            <template x-for="s in stages" :key="s">
+              <option :value="s" x-text="s"></option>
+            </template>
+          </select>
+          <!-- v2.5.0 J: 정렬 드롭다운 (목록 보기에서만) -->
+          <select x-model="sortBy" x-show="viewMode==='list'"
+            class="px-2 py-1.5 border border-gray-300 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+            <option value="recent">최근 활동순</option>
+            <option value="name">이름순 (가나다)</option>
+            <option value="meetings">상담 건수 많은 순</option>
+          </select>
+        </div>
       </div>
 
       <!-- 로딩 -->
-      <div x-show="loading" x-cloak class="p-10 text-center text-gray-400">
+      <div x-show="loading" x-cloak class="p-10 text-center text-gray-400 dark:text-gray-500">
         <div class="inline-block w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
         <div class="text-xs mt-2">고객 폴더 스캔 중...</div>
       </div>
 
       <!-- 루트 경로 없음 -->
       <div x-show="!loading && !rootExists" x-cloak class="p-10 text-center">
-        <div class="text-red-600 font-medium mb-2">⚠ 고객 폴더 루트를 찾을 수 없습니다</div>
-        <div class="text-xs font-mono bg-gray-100 inline-block px-2 py-1 rounded break-all" x-text="root"></div>
-        <div class="text-xs text-gray-500 mt-3">
+        <div class="text-red-600 dark:text-red-400 font-medium mb-2">⚠ 고객 폴더 루트를 찾을 수 없습니다</div>
+        <div class="text-xs font-mono bg-gray-100 dark:bg-gray-700 inline-block px-2 py-1 rounded break-all" x-text="root"></div>
+        <div class="text-xs text-gray-500 dark:text-gray-400 dark:text-gray-500 mt-3">
           경로가 바뀌었거나 폴더가 이동되지 않은 상태일 수 있습니다.
-          <code class="bg-gray-100 px-1 rounded">app\config.py</code>의
-          <code class="bg-gray-100 px-1 rounded">CLIENT_ROOT</code>를 확인하세요.
+          <code class="bg-gray-100 dark:bg-gray-700 px-1 rounded">app\config.py</code>의
+          <code class="bg-gray-100 dark:bg-gray-700 px-1 rounded">CLIENT_ROOT</code>를 확인하세요.
         </div>
       </div>
 
       <!-- 비어있음 -->
-      <div x-show="!loading && rootExists && clients.length === 0" x-cloak class="p-10 text-center text-gray-400 text-sm">
+      <div x-show="!loading && rootExists && clients.length === 0" x-cloak class="p-10 text-center text-gray-400 dark:text-gray-500 text-sm">
         아직 등록된 고객 폴더가 없습니다. 위 "새 고객 상담 시작"으로 첫 고객을 만들어 보세요.
+      </div>
+      <!-- 목록 보기에서 검색결과 없음 -->
+      <div x-show="!loading && viewMode==='list' && filteredClients.length === 0 && clients.length > 0" x-cloak
+           class="p-8 text-center text-gray-400 dark:text-gray-500 text-sm">
+        검색 결과가 없습니다.
+      </div>
+
+      <!-- v2.6.0 P: ⭐ 즐겨찾기 고객 (있을 때만) -->
+      <div x-show="!loading && favoriteClients.length > 0" x-cloak class="px-5 py-3 bg-amber-50 dark:bg-amber-900/20 border-b border-gray-100 dark:border-gray-700">
+        <div class="text-xs font-semibold text-amber-900 dark:text-amber-200 mb-2 flex items-center gap-1">
+          ⭐ 즐겨찾기 (<span x-text="favoriteClients.length"></span>)
+        </div>
+        <div class="flex flex-wrap gap-2">
+          <template x-for="c in favoriteClients" :key="'fav-' + c.folder_name">
+            <button @click.stop="selectClient(c)"
+                    class="text-xs bg-white dark:bg-gray-800 border border-amber-200 dark:border-amber-700/50 px-2 py-1 rounded hover:border-amber-400 dark:hover:border-amber-500 transition">
+              <span class="font-semibold dark:text-gray-100" x-text="c.name"></span>
+              <span class="text-gray-400 dark:text-gray-500 ml-1" x-text="c.descriptor ? '(' + c.descriptor + ')' : ''"></span>
+            </button>
+          </template>
+        </div>
+      </div>
+
+      <!-- v2.7.0 P-extra: 🕐 최근 본 상담 (있을 때만) -->
+      <div x-show="!loading && recentMeetings.length > 0" x-cloak class="px-5 py-3 bg-blue-50 dark:bg-blue-900/20 border-b border-gray-100 dark:border-gray-700">
+        <div class="text-xs font-semibold text-blue-900 dark:text-blue-200 mb-2 flex items-center gap-1">
+          🕐 최근 본 상담 (<span x-text="recentMeetings.length"></span>)
+        </div>
+        <div class="flex flex-wrap gap-2">
+          <template x-for="m in recentMeetings" :key="'rec-' + m.meeting_id">
+            <a :href="'/live?m=' + m.meeting_id"
+               class="text-xs bg-white dark:bg-gray-800 border border-blue-200 dark:border-blue-700/50 px-2 py-1 rounded hover:border-blue-400 dark:hover:border-blue-500 transition flex items-center gap-1">
+              <span class="font-semibold dark:text-gray-100" x-text="m.client_name || '?'"></span>
+              <span class="text-[10px] text-gray-400 dark:text-gray-500" x-text="m.meeting_type"></span>
+            </a>
+          </template>
+          <button @click="clearRecentMeetings()"
+                  class="text-[10px] text-blue-600 dark:text-blue-400 hover:underline self-center ml-1"
+                  title="최근 목록 지우기">
+            지우기
+          </button>
+        </div>
+      </div>
+
+      <!-- ① v3.5.0: 칸반 보기 -->
+      <div x-show="!loading && viewMode==='kanban'" x-cloak class="overflow-x-auto p-4">
+        <div class="flex gap-4 min-w-max">
+          <template x-for="group in kanbanGroups" :key="group.stage">
+            <div class="w-48 shrink-0">
+              <div class="flex items-center justify-between mb-2">
+                <span class="text-xs font-semibold px-2 py-0.5 rounded"
+                      :class="stageColor(group.stage)"
+                      x-text="group.stage"></span>
+                <span class="text-xs text-gray-400 dark:text-gray-500" x-text="group.clients.length + '명'"></span>
+              </div>
+              <div class="space-y-2">
+                <template x-for="c in group.clients" :key="c.folder_name">
+                  <div @click="selectClient(c)"
+                       class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-3 cursor-pointer hover:border-blue-400 dark:hover:border-blue-500 hover:shadow-sm transition text-sm">
+                    <div class="font-medium truncate dark:text-gray-100" x-text="c.name"></div>
+                    <div class="text-xs text-gray-500 dark:text-gray-400 truncate" x-text="c.descriptor || ''"></div>
+                    <div class="text-xs text-gray-400 dark:text-gray-500 mt-1" x-text="c.num_meetings + '건'"></div>
+                    <div x-show="c.phone" class="text-[10px] text-blue-500 dark:text-blue-400 font-mono" x-text="c.phone"></div>
+                  </div>
+                </template>
+                <div x-show="group.clients.length === 0"
+                     class="text-xs text-gray-300 dark:text-gray-600 text-center py-4">없음</div>
+              </div>
+            </div>
+          </template>
+        </div>
       </div>
 
       <!-- 목록 -->
-      <ul x-show="!loading && filteredClients.length > 0" x-cloak class="divide-y divide-gray-100">
+      <ul x-show="!loading && viewMode==='list' && filteredClients.length > 0" x-cloak class="divide-y divide-gray-100 dark:divide-gray-700">
         <template x-for="c in filteredClients" :key="c.folder_name">
-          <li class="px-5 py-3 hover:bg-gray-50 flex items-center gap-3 cursor-pointer"
-              @click="selectClient(c)">
-            <div class="w-10 h-10 rounded-full bg-gradient-to-br from-blue-100 to-blue-200 flex items-center justify-center text-blue-700 font-bold shrink-0"
-              x-text="(c.name || '?').slice(0, 1)"></div>
-            <div class="flex-1 min-w-0">
-              <div class="font-medium truncate">
+          <li class="px-5 py-3 hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center gap-3">
+            <div class="w-10 h-10 rounded-full bg-gradient-to-br from-blue-100 to-blue-200 flex items-center justify-center text-blue-700 dark:text-blue-300 font-bold shrink-0 cursor-pointer"
+              x-text="(c.name || '?').slice(0, 1)"
+              @click="selectClient(c)"></div>
+            <div class="flex-1 min-w-0 cursor-pointer" @click="selectClient(c)">
+              <div class="font-medium truncate flex items-center gap-1.5">
                 <span x-text="c.name"></span>
-                <span class="text-gray-400 text-xs ml-2" x-text="c.descriptor ? '(' + c.descriptor + ')' : ''"></span>
+                <span class="text-gray-400 dark:text-gray-500 text-xs" x-text="c.descriptor ? '(' + c.descriptor + ')' : ''"></span>
+                <!-- v2.6.0 L: 진행률 배지 -->
+                <span x-show="c.stage" x-cloak class="text-[10px] px-1.5 py-0.5 rounded font-medium"
+                      :class="stageColor(c.stage)"
+                      x-text="c.stage"></span>
               </div>
-              <div class="text-xs text-gray-500 truncate" x-text="c.folder_name"></div>
+              <div class="text-xs text-gray-500 dark:text-gray-400 truncate flex items-center gap-2">
+                <span x-text="c.folder_name"></span>
+                <span x-show="c.phone" x-cloak class="text-[10px] text-blue-500 dark:text-blue-400 font-mono shrink-0" x-text="c.phone"></span>
+              </div>
+              <!-- ④ v3.5.0: 다음 일정 D-Day 배지 -->
+              <template x-if="c.next_appointment">
+                <div class="flex items-center gap-1 mt-0.5">
+                  <span class="text-[10px] font-bold px-1.5 py-0 rounded"
+                        :class="c.next_appointment.dday === 0 ? 'bg-red-100 text-red-600 dark:bg-red-900/40 dark:text-red-300' : c.next_appointment.dday <= 3 ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-200' : 'bg-purple-100 text-purple-600 dark:bg-purple-900/40 dark:text-purple-300'"
+                        x-text="c.next_appointment.dday === 0 ? 'D-Day' : c.next_appointment.dday < 0 ? 'D+'+Math.abs(c.next_appointment.dday) : 'D-'+c.next_appointment.dday"></span>
+                  <span class="text-[10px] text-purple-600 dark:text-purple-400 truncate" x-text="'📅 '+c.next_appointment.title"></span>
+                </div>
+              </template>
             </div>
-            <div class="text-right shrink-0">
-              <div class="text-xs text-gray-400">상담</div>
-              <div class="text-sm font-mono tabular-nums" x-text="c.num_meetings + '건'"></div>
+            <!-- v2.6.0 P: 즐겨찾기 토글 -->
+            <button @click.stop="toggleFavorite(c)"
+                    class="shrink-0 text-lg w-7 h-7 rounded hover:bg-gray-100 dark:hover:bg-gray-700 transition"
+                    :title="c.is_favorite ? '즐겨찾기 해제' : '즐겨찾기 추가'">
+              <span x-show="c.is_favorite" x-cloak>⭐</span>
+              <span x-show="!c.is_favorite" x-cloak class="text-gray-300 dark:text-gray-600">☆</span>
+            </button>
+            <!-- v2.6.0 EE: 360 뷰 진입 -->
+            <button x-show="c.client_id" x-cloak @click.stop="openCustomer360(c)"
+                    class="shrink-0 text-xs px-2 py-1 border border-gray-200 dark:border-gray-600 rounded hover:bg-blue-50 dark:hover:bg-blue-900/30 dark:text-gray-200 transition"
+                    title="고객 360 뷰 (모든 상담 통합 + 누적 AI 요약)">
+              👤 360
+            </button>
+            <div class="text-right shrink-0 cursor-pointer" @click="selectClient(c)">
+              <div class="text-xs text-gray-400 dark:text-gray-500">상담</div>
+              <div class="text-sm font-mono tabular-nums dark:text-gray-200" x-text="c.num_meetings + '건'"></div>
             </div>
           </li>
         </template>
@@ -153,8 +499,8 @@
     </section>
 
     <!-- 하단 경로 정보 -->
-    <section class="mt-6 bg-gray-100 rounded-lg p-4 text-xs text-gray-500">
-      <div class="font-medium text-gray-700 mb-1">📁 저장 루트</div>
+    <section class="mt-6 bg-gray-100 dark:bg-gray-700 rounded-lg p-4 text-xs text-gray-500 dark:text-gray-400 dark:text-gray-500">
+      <div class="font-medium text-gray-700 dark:text-gray-200 mb-1">📁 저장 루트</div>
       <div class="font-mono break-all" x-text="root"></div>
     </section>
   </main>
@@ -165,30 +511,109 @@
   <div x-show="showWelcome" x-cloak
        class="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4"
        @keydown.escape.window="closeWelcome(false)">
-    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto"
+    <div class="bg-white dark:bg-gray-800 dark:text-gray-100 rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto"
          @click.outside="closeWelcome(false)">
 
       <!-- Header -->
-      <div class="px-6 py-4 border-b border-gray-100 flex items-center justify-between sticky top-0 bg-white z-10">
+      <div class="px-6 py-4 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between sticky top-0 bg-white dark:bg-gray-800 z-10">
         <div>
           <h2 class="text-xl font-bold flex items-center gap-2">
             <span>🏠</span> InterioNote
-            <span class="text-sm text-gray-500 font-mono" x-text="'v' + appVersion"></span>
+            <span class="text-sm text-gray-500 dark:text-gray-400 dark:text-gray-500 font-mono" x-text="'v' + appVersion"></span>
           </h2>
-          <div class="text-xs text-gray-500 mt-0.5">인테리어 상담 녹음·전사·분석 (완전 로컬)</div>
+          <div class="text-xs text-gray-500 dark:text-gray-400 dark:text-gray-500 mt-0.5">인테리어 상담 녹음·전사·분석 (완전 로컬)</div>
         </div>
-        <button @click="closeWelcome(false)" class="text-gray-400 hover:text-gray-700 text-2xl leading-none">×</button>
+        <button @click="closeWelcome(false)" class="text-gray-400 hover:text-gray-700 dark:text-gray-200 text-2xl leading-none">×</button>
+      </div>
+
+      <!-- 🚀 처음 사용 시 안내 (Wi-Fi + Ollama) — v2.5.5 -->
+      <div class="px-6 pt-5">
+        <h3 class="text-sm font-semibold text-gray-700 dark:text-gray-200 mb-2 flex items-center gap-1">
+          🚀 처음 사용하시나요?
+        </h3>
+        <div class="space-y-2 text-sm">
+          <!-- Wi-Fi 안내 (항상 표시) -->
+          <div class="bg-sky-50 dark:bg-sky-900/30 border border-sky-200 dark:border-sky-700/50 rounded-lg p-3 flex gap-2">
+            <span class="shrink-0">📶</span>
+            <div class="text-sky-900 dark:text-sky-200">
+              <strong>첫 녹음 시 Wi-Fi 가 필요합니다</strong> — 음성 인식 모델 (~500MB) 이 자동으로 한 번 다운로드됩니다.
+              <span class="opacity-70">그 다음부터는 인터넷 없이 매장에서 사용 가능.</span>
+            </div>
+          </div>
+
+          <!-- Ollama 상태별 안내 -->
+          <template x-if="ollamaState === 'checking'">
+            <div class="bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-3 text-gray-600 dark:text-gray-300 text-xs">
+              ⏳ AI 분석 기능 (Ollama) 가용성 확인 중...
+            </div>
+          </template>
+
+          <template x-if="ollamaState === 'no_ollama'">
+            <div class="bg-amber-50 dark:bg-amber-900/30 border border-amber-300 dark:border-amber-700 rounded-lg p-3">
+              <div class="flex gap-2 text-amber-900 dark:text-amber-200">
+                <span class="shrink-0">🤖</span>
+                <div class="flex-1">
+                  <strong>AI 분석 기능을 쓰려면 Ollama 도 같이 설치하세요</strong>
+                  <div class="text-xs mt-1 text-amber-800 dark:text-amber-300 leading-relaxed">
+                    ① 아래 버튼 → Ollama 설치 파일 다운로드 → 더블클릭 설치<br>
+                    ② 설치 후 cmd 창에서 <code class="bg-amber-100 dark:bg-amber-800/50 px-1 rounded">ollama pull qwen2.5:3b</code> 한 번 실행 (~1.9GB)<br>
+                    ③ InterioNote 다시 시작<br>
+                    <span class="opacity-70">AI 분석 (요약·체크리스트·액션 아이템) 안 쓰면 건너뛰어도 됩니다 — 녹음·전사·메모는 그대로 동작.</span>
+                  </div>
+                  <div class="flex gap-2 mt-2 flex-wrap">
+                    <button @click="openOllamaDownload()"
+                            class="text-xs bg-amber-600 hover:bg-amber-700 text-white px-3 py-1.5 rounded">
+                      📥 Ollama 다운로드 페이지 열기
+                    </button>
+                    <button @click="recheckOllama()"
+                            :disabled="ollamaState === 'checking'"
+                            class="text-xs bg-white dark:bg-gray-700 border border-amber-300 dark:border-amber-600 text-amber-900 dark:text-amber-200 hover:bg-amber-100 dark:hover:bg-gray-600 px-3 py-1.5 rounded">
+                      🔄 다시 확인
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </template>
+
+          <template x-if="ollamaState === 'no_model'">
+            <div class="bg-amber-50 dark:bg-amber-900/30 border border-amber-300 dark:border-amber-700 rounded-lg p-3">
+              <div class="flex gap-2 text-amber-900 dark:text-amber-200">
+                <span class="shrink-0">📦</span>
+                <div class="flex-1">
+                  <strong>Ollama 는 설치돼 있지만 AI 모델이 없습니다</strong>
+                  <div class="text-xs mt-1 text-amber-800 dark:text-amber-300 leading-relaxed">
+                    cmd 창 (시작 메뉴 → cmd) 에서 <code class="bg-amber-100 dark:bg-amber-800/50 px-1 rounded">ollama pull qwen2.5:3b</code> 한 번 실행 (~1.9GB 다운로드).<br>
+                    완료 후 아래 [다시 확인] 클릭.
+                  </div>
+                  <button @click="recheckOllama()"
+                          :disabled="ollamaState === 'checking'"
+                          class="text-xs bg-amber-600 hover:bg-amber-700 text-white px-3 py-1.5 rounded mt-2">
+                    🔄 다시 확인
+                  </button>
+                </div>
+              </div>
+            </div>
+          </template>
+
+          <template x-if="ollamaState === 'ok'">
+            <div class="text-xs text-emerald-700 dark:text-emerald-400 flex items-center gap-1.5 px-1">
+              <span>✅</span>
+              <span>AI 분석 준비 완료 (Ollama + qwen2.5:3b 정상)</span>
+            </div>
+          </template>
+        </div>
       </div>
 
       <!-- 사용 설명 -->
       <div class="px-6 py-5">
-        <h3 class="text-sm font-semibold text-gray-700 mb-2 flex items-center gap-1">
+        <h3 class="text-sm font-semibold text-gray-700 dark:text-gray-200 mb-2 flex items-center gap-1">
           📘 빠른 사용법
         </h3>
-        <ul class="space-y-1.5 text-sm text-gray-700 leading-relaxed">
+        <ul class="space-y-1.5 text-sm text-gray-700 dark:text-gray-200 leading-relaxed">
           <li class="flex gap-2">
             <span class="shrink-0">①</span>
-            <span><strong>신규 고객</strong>은 좌측의 <code class="bg-gray-100 px-1 rounded">✨ 새 고객 상담 시작</code> → 이름·평형 입력 → 자동 폴더 생성</span>
+            <span><strong>신규 고객</strong>은 좌측의 <code class="bg-gray-100 dark:bg-gray-700 px-1 rounded">✨ 새 고객 상담 시작</code> → 이름·평형 입력 → 자동 폴더 생성</span>
           </li>
           <li class="flex gap-2">
             <span class="shrink-0">②</span>
@@ -196,48 +621,91 @@
           </li>
           <li class="flex gap-2">
             <span class="shrink-0">③</span>
-            <span>녹음 중 발화 카드가 1~3초 뒤 자동 생성. <kbd class="px-1 bg-gray-100 border border-gray-300 rounded">1</kbd>=나, <kbd class="px-1 bg-gray-100 border border-gray-300 rounded">2</kbd>=고객, <kbd class="px-1 bg-gray-100 border border-gray-300 rounded">0</kbd>=라벨 지우기</span>
+            <span>녹음 중 발화 카드가 1~3초 뒤 자동 생성. <kbd class="px-1 bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded">1</kbd>=나, <kbd class="px-1 bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded">2</kbd>=고객, <kbd class="px-1 bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded">0</kbd>=라벨 지우기</span>
           </li>
           <li class="flex gap-2">
             <span class="shrink-0">④</span>
-            <span>종료 후 <code class="bg-gray-100 px-1 rounded">🎯 정확도 재처리</code> (medium) 로 인식률 향상, <code class="bg-gray-100 px-1 rounded">✨ AI 분석</code> 으로 요약 생성</span>
+            <span>종료 후 <code class="bg-gray-100 dark:bg-gray-700 px-1 rounded">🎯 정확도 재처리</code> (medium) 로 인식률 향상, <code class="bg-gray-100 dark:bg-gray-700 px-1 rounded">✨ AI 분석</code> 으로 요약 생성</span>
           </li>
           <li class="flex gap-2">
             <span class="shrink-0">⑤</span>
-            <span>저장 위치·폴더 구조·모델 등은 우측 상단 <code class="bg-gray-100 px-1 rounded">⚙️ 설정</code> 에서 변경</span>
+            <span>저장 위치·폴더 구조·모델 등은 우측 상단 <code class="bg-gray-100 dark:bg-gray-700 px-1 rounded">⚙️ 설정</code> 에서 변경</span>
           </li>
         </ul>
       </div>
 
-      <!-- 새 버전 알림 배너 (Phase 7B-3) -->
+      <!-- 새 버전 알림 배너 (Phase 7B-3 + 8D 빠른 업데이트) -->
       <div x-show="updateInfo && updateInfo.newer_available" x-cloak class="px-6 pt-3">
-        <div class="bg-amber-50 border border-amber-300 rounded-lg p-3 text-sm">
-          <div class="font-semibold text-amber-900 mb-1">
+        <div class="bg-amber-50 dark:bg-amber-900/20 border border-amber-300 dark:border-amber-700 rounded-lg p-3 text-sm">
+          <div class="font-semibold text-amber-900 dark:text-amber-200 mb-1">
             🔔 새 버전 발견 — v<span x-text="updateInfo.latest_version"></span>
           </div>
-          <div class="text-xs text-amber-800 mb-2">
-            현재: v<span x-text="appVersion"></span> · 다운로드 후 설치하면 사용자 데이터는 그대로 유지됩니다.
+          <div class="text-xs text-amber-800 dark:text-amber-300 mb-2">
+            현재: v<span x-text="appVersion"></span> · 사용자 데이터는 모두 그대로 보존됩니다.
           </div>
-          <button @click="openReleasePageFromWelcome()"
-                  class="text-sm bg-amber-600 hover:bg-amber-700 text-white px-3 py-1.5 rounded">
-            📥 다운로드 페이지 열기
-          </button>
+          <!-- Phase 8D: 빠른 업데이트 가능하면 우선 노출 -->
+          <div class="flex flex-wrap gap-2">
+            <template x-if="updateInfo.quick_update_supported">
+              <button @click="runQuickUpdateFromWelcome()"
+                      :disabled="quickUpdateState === 'running'"
+                      class="text-sm bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded disabled:bg-gray-300">
+                <span x-show="quickUpdateState !== 'running'">
+                  ✨ 빠른 업데이트
+                  <span x-show="updateInfo.quick_update && updateInfo.quick_update.size"
+                        class="text-[10px] opacity-80">
+                    (~<span x-text="Math.round((updateInfo.quick_update.size || 0)/1024)"></span>KB)
+                  </span>
+                </span>
+                <span x-show="quickUpdateState === 'running'" x-cloak>⏳ 적용 중...</span>
+              </button>
+            </template>
+            <button @click="openReleasePageFromWelcome()"
+                    class="text-sm bg-amber-600 hover:bg-amber-700 text-white px-3 py-1.5 rounded">
+              📦 전체 재설치 (인스톨러)
+            </button>
+          </div>
+          <div x-show="updateInfo.quick_update_supported" class="text-[11px] text-emerald-700 dark:text-emerald-300 mt-1.5">
+            💡 빠른 업데이트는 작은 변경만 다운로드해서 자동 적용됩니다 (앱 자동 재시작).
+          </div>
+          <div x-show="quickUpdateError" x-cloak class="mt-2 text-xs text-red-700 bg-red-50 border border-red-200 rounded p-2"
+               x-text="quickUpdateError"></div>
+        </div>
+      </div>
+
+      <!-- Phase 8D: 직전 빠른 업데이트 적용 결과 토스트 (앱 첫 실행 시 1회) -->
+      <div x-show="lastUpdateResult" x-cloak class="px-6 pt-3">
+        <div :class="lastUpdateResult && lastUpdateResult.kind === 'applied' ? 'bg-emerald-50 border-emerald-300 text-emerald-900' : 'bg-amber-50 dark:bg-amber-900/20 border-amber-300 dark:border-amber-700 text-amber-900 dark:text-amber-200'"
+             class="border rounded-lg p-3 text-sm flex items-start gap-2">
+          <div class="flex-1">
+            <template x-if="lastUpdateResult && lastUpdateResult.kind === 'applied'">
+              <div>
+                ✅ 업데이트 적용됨 — 이제 v<span x-text="lastUpdateResult.version"></span> 사용 중입니다.
+              </div>
+            </template>
+            <template x-if="lastUpdateResult && lastUpdateResult.kind === 'rollback'">
+              <div>
+                ⚠ 빠른 업데이트 적용 중 오류로 롤백됐습니다 (시도 버전 v<span x-text="lastUpdateResult.version"></span>).
+                전체 인스톨러로 다시 시도해주세요.
+              </div>
+            </template>
+          </div>
+          <button @click="lastUpdateResult = null" class="text-xs opacity-60 hover:opacity-100">✕</button>
         </div>
       </div>
 
       <!-- 최신 패치 노트 -->
       <div class="px-6 pb-2">
-        <h3 class="text-sm font-semibold text-gray-700 mb-2 flex items-center gap-1">
+        <h3 class="text-sm font-semibold text-gray-700 dark:text-gray-200 mb-2 flex items-center gap-1">
           🆕 이번 버전 주요 변경
         </h3>
         <template x-if="latestEntry">
-          <div class="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm">
+          <div class="bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-700/50 rounded-lg p-3 text-sm">
             <div class="flex items-center gap-2 mb-1.5">
-              <span class="font-mono text-blue-700 font-semibold" x-text="'v' + latestEntry.version"></span>
-              <span class="text-xs text-blue-600" x-text="latestEntry.date"></span>
-              <span class="text-xs text-gray-700 ml-1" x-text="'· ' + latestEntry.title"></span>
+              <span class="font-mono text-blue-700 dark:text-blue-300 font-semibold" x-text="'v' + latestEntry.version"></span>
+              <span class="text-xs text-blue-600 dark:text-blue-400" x-text="latestEntry.date"></span>
+              <span class="text-xs text-gray-700 dark:text-gray-200 ml-1" x-text="'· ' + latestEntry.title"></span>
             </div>
-            <ul class="space-y-1 text-sm text-blue-900">
+            <ul class="space-y-1 text-sm text-blue-900 dark:text-blue-200">
               <template x-for="item in latestEntry.items" :key="item">
                 <li class="flex gap-2">
                   <span class="shrink-0 text-blue-500">·</span>
@@ -252,22 +720,22 @@
       <!-- 이전 버전 (접기) -->
       <div class="px-6 pb-2" x-show="olderEntries.length > 0" x-cloak>
         <button @click="showOlder = !showOlder"
-                class="text-xs text-gray-600 hover:text-gray-900 mt-1 flex items-center gap-1">
+                class="text-xs text-gray-600 dark:text-gray-300 hover:text-gray-900 mt-1 flex items-center gap-1">
           <span x-text="showOlder ? '▼' : '▶'"></span>
           <span>이전 버전 변경 이력 (<span x-text="olderEntries.length"></span>개)</span>
         </button>
         <div x-show="showOlder" x-cloak class="mt-2 space-y-2">
           <template x-for="entry in olderEntries" :key="entry.version">
-            <div class="bg-gray-50 border border-gray-200 rounded-lg p-3 text-xs">
+            <div class="bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-3 text-xs">
               <div class="flex items-center gap-2 mb-1">
-                <span class="font-mono text-gray-700 font-semibold" x-text="'v' + entry.version"></span>
-                <span class="text-gray-500" x-text="entry.date"></span>
-                <span class="text-gray-700" x-text="'· ' + entry.title"></span>
+                <span class="font-mono text-gray-700 dark:text-gray-200 font-semibold" x-text="'v' + entry.version"></span>
+                <span class="text-gray-500 dark:text-gray-400 dark:text-gray-500" x-text="entry.date"></span>
+                <span class="text-gray-700 dark:text-gray-200" x-text="'· ' + entry.title"></span>
               </div>
-              <ul class="space-y-0.5 text-gray-700">
+              <ul class="space-y-0.5 text-gray-700 dark:text-gray-200">
                 <template x-for="item in entry.items" :key="item">
                   <li class="flex gap-1.5">
-                    <span class="shrink-0 text-gray-400">·</span>
+                    <span class="shrink-0 text-gray-400 dark:text-gray-500">·</span>
                     <span x-text="item"></span>
                   </li>
                 </template>
@@ -278,11 +746,18 @@
       </div>
 
       <!-- Footer -->
-      <div class="px-6 py-4 border-t border-gray-100 flex justify-between items-center">
-        <button @click="closeWelcome(true)"
-                class="text-sm text-gray-500 hover:text-gray-900 underline">
-          이번 버전부터 다시 열지 않기
-        </button>
+      <div class="px-6 py-4 border-t border-gray-100 dark:border-gray-700 flex justify-between items-center flex-wrap gap-2">
+        <div class="flex items-center gap-3">
+          <button @click="closeWelcome(true)"
+                  class="text-sm text-gray-500 dark:text-gray-400 dark:text-gray-500 hover:text-gray-900 underline">
+            이번 버전부터 다시 열지 않기
+          </button>
+          <!-- v2.7.0 V: 온보딩 다시 보기 -->
+          <button @click="showOnboardingAgain()"
+                  class="text-xs text-blue-600 dark:text-blue-400 hover:underline">
+            🚀 시작 가이드 다시 보기
+          </button>
+        </div>
         <button @click="closeWelcome(false)"
                 class="px-4 py-2 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded-md font-semibold">
           시작하기
@@ -293,73 +768,289 @@
 
 
   <!-- ========================================
+       v2.7.0 V: 온보딩 튜토리얼 (처음 실행 시 1회만)
+       ======================================== -->
+  <div x-show="showOnboarding" x-cloak
+       class="fixed inset-0 z-[70] flex items-center justify-center bg-black/60 p-4"
+       @keydown.escape.window="onboardingSkip()">
+    <div class="bg-white dark:bg-gray-800 dark:text-gray-100 rounded-2xl shadow-2xl w-full max-w-2xl">
+      <!-- Progress -->
+      <div class="px-6 py-3 border-b border-gray-100 dark:border-gray-700 flex items-center gap-2">
+        <div class="text-sm font-semibold dark:text-gray-100">🚀 InterioNote 시작 가이드</div>
+        <div class="flex-1 flex gap-1 mx-3">
+          <template x-for="i in 5" :key="i">
+            <div class="flex-1 h-1.5 rounded-full"
+                 :class="i <= onboardingStep ? 'bg-blue-600' : 'bg-gray-200 dark:bg-gray-700'"></div>
+          </template>
+        </div>
+        <div class="text-xs text-gray-500 dark:text-gray-400 font-mono">
+          <span x-text="onboardingStep"></span> / 5
+        </div>
+      </div>
+
+      <!-- Step content -->
+      <div class="px-8 py-6 min-h-[260px]">
+        <!-- Step 1 -->
+        <template x-if="onboardingStep === 1">
+          <div>
+            <div class="text-3xl mb-3">🎙</div>
+            <h3 class="text-lg font-bold mb-2 dark:text-gray-100">1. 마이크 점검</h3>
+            <p class="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">
+              녹음 시작 전에 <strong>마이크 입력 점검</strong> 으로 마이크가 정상 인식되는지 확인하세요.
+              매장에서 가장 흔한 실패 원인이 마이크 연결 / 위치 / 볼륨 문제입니다.
+              <br><br>
+              녹음 화면 → <strong>마이크 입력 점검</strong> 박스 → <strong>▶ 점검 시작</strong> 클릭 → 한 마디 해보면 막대가 움직여야 정상.
+            </p>
+          </div>
+        </template>
+
+        <!-- Step 2 -->
+        <template x-if="onboardingStep === 2">
+          <div>
+            <div class="text-3xl mb-3">👤</div>
+            <h3 class="text-lg font-bold mb-2 dark:text-gray-100">2. 신규 고객 등록</h3>
+            <p class="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">
+              새 고객은 <strong>✨ 새 고객 상담 시작</strong> → 이름·평형·아파트명 입력 → 자동으로 고객 폴더와 하위 폴더 (상담기록·렌더이미지·제안서·현장이미지·휴지통·ETC) 가 생성됩니다.
+              <br><br>
+              기존 고객은 아래 목록에서 클릭하면 됩니다.
+            </p>
+          </div>
+        </template>
+
+        <!-- Step 3 -->
+        <template x-if="onboardingStep === 3">
+          <div>
+            <div class="text-3xl mb-3">⏺</div>
+            <h3 class="text-lg font-bold mb-2 dark:text-gray-100">3. 녹음 + 화자 라벨</h3>
+            <p class="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">
+              녹음 시작 후 발화 카드가 1~3초 단위로 자동 생성됩니다. 각 카드에 화자를 표시하세요:
+              <br>
+              <kbd class="px-1.5 py-0.5 bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded font-mono">1</kbd> = 나
+              · <kbd class="px-1.5 py-0.5 bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded font-mono">2</kbd> = 고객
+              · <kbd class="px-1.5 py-0.5 bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded font-mono">0</kbd> = 지우기
+              <br><br>
+              종료 후 <strong>🎯 정확도 재처리</strong> 로 인식률을 한 단계 높일 수 있습니다.
+            </p>
+          </div>
+        </template>
+
+        <!-- Step 4 -->
+        <template x-if="onboardingStep === 4">
+          <div>
+            <div class="text-3xl mb-3">🤖</div>
+            <h3 class="text-lg font-bold mb-2 dark:text-gray-100">4. AI 분석 + 고객 360 뷰</h3>
+            <p class="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">
+              녹음 종료 후 <strong>✨ AI 분석</strong> 으로 자동 요약·체크리스트·인테리어 장소 정보 추출.
+              <br><br>
+              여러 상담이 쌓이면 고객 카드의 <strong>👤 360</strong> 버튼으로 한 고객의 모든 상담을 한 화면 통합 + AI 누적 요약 가능.
+              매장에서 다시 만난 고객 30초 컨텍스트 회수.
+            </p>
+          </div>
+        </template>
+
+        <!-- Step 5 -->
+        <template x-if="onboardingStep === 5">
+          <div>
+            <div class="text-3xl mb-3">⚙️</div>
+            <h3 class="text-lg font-bold mb-2 dark:text-gray-100">5. 설정 — 한 번만 등록</h3>
+            <p class="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">
+              우측 상단 <strong>⚙️ 설정</strong> 에서 한 번만 등록해두면 좋은 것들:
+            </p>
+            <ul class="text-sm text-gray-700 dark:text-gray-300 mt-2 space-y-1 list-disc list-inside">
+              <li><strong>📁 사용자 폴더</strong> — 고객 폴더 루트 경로 (OneDrive 등)</li>
+              <li><strong>📊 OJT 연동</strong> — 본인 OJT 엑셀 + 컬럼 매핑 마법사 (신규 고객 자동 동기화)</li>
+              <li><strong>💬 답변 템플릿</strong> — 자주 쓰는 안내 문구 등록 (한 클릭 클립보드)</li>
+              <li><strong>📦 데이터 백업</strong> — 정기 백업 zip 만들기</li>
+            </ul>
+          </div>
+        </template>
+      </div>
+
+      <!-- Footer -->
+      <div class="px-6 py-3 border-t border-gray-100 dark:border-gray-700 flex items-center justify-between">
+        <button @click="onboardingSkip()"
+                class="text-xs text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100">
+          나중에 보기 (다시 안 봄)
+        </button>
+        <div class="flex gap-2">
+          <button x-show="onboardingStep > 1" @click="onboardingStep -= 1"
+                  class="text-sm text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 px-3 py-1.5 rounded">
+            ← 이전
+          </button>
+          <button x-show="onboardingStep < 5" @click="onboardingStep += 1"
+                  class="text-sm bg-blue-600 hover:bg-blue-700 text-white px-4 py-1.5 rounded">
+            다음 →
+          </button>
+          <button x-show="onboardingStep === 5" @click="onboardingFinish()"
+                  class="text-sm bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-1.5 rounded font-semibold">
+            ✓ 시작하기
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========================================
+       v3.5.5: 외부 음성 파일 임포트 모달
+       ======================================== -->
+  <div x-show="audioImport.show" x-cloak
+       @click.self="closeAudioImport()"
+       class="fixed inset-0 bg-black/50 flex items-center justify-center z-40 p-4">
+    <div class="bg-white dark:bg-gray-800 rounded-xl shadow-2xl max-w-lg w-full p-5 dark:text-gray-100">
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="font-bold text-lg flex items-center gap-2">
+          <span>🎙</span> 외부 음성 파일에서 상담 만들기
+        </h2>
+        <button @click="closeAudioImport()" class="text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 text-xl">×</button>
+      </div>
+      <p class="text-sm text-gray-600 dark:text-gray-400 mb-4">
+        iPhone 음성메모, 외부 녹음기 등에서 만든 파일을 선택하면
+        해당 고객의 상담기록 폴더로 자동 복사됩니다. 그 후 재전사·AI 분석 가능.
+      </p>
+      <!-- 파일 선택 -->
+      <div class="mb-3">
+        <div class="text-xs text-gray-500 dark:text-gray-400 mb-1">음성 파일 (mp3 / m4a / wav / ogg / opus / aac / flac)</div>
+        <div class="flex gap-2">
+          <input x-model="audioImport.path" type="text"
+                 placeholder="예: C:\Users\tmdqo\Downloads\녹음.m4a"
+                 class="flex-1 text-sm border border-gray-300 dark:border-gray-600 rounded px-3 py-2 bg-white dark:bg-gray-700 dark:text-gray-100 font-mono"/>
+          <button @click="pickAudioFile()"
+                  class="text-sm bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 px-3 py-2 rounded hover:bg-gray-200 dark:hover:bg-gray-600 whitespace-nowrap">📁 파일 선택</button>
+        </div>
+      </div>
+      <!-- 고객 -->
+      <div class="mb-3">
+        <div class="text-xs text-gray-500 dark:text-gray-400 mb-1">고객 (기존 등록된 고객 중 선택)</div>
+        <select x-model="audioImport.clientFolderName"
+                class="w-full text-sm border border-gray-300 dark:border-gray-600 rounded px-3 py-2 bg-white dark:bg-gray-700 dark:text-gray-100">
+          <option value="">-- 고객 선택 --</option>
+          <template x-for="c in clients" :key="c.client_id">
+            <option :value="c.folder_name" x-text="c.name + ' (' + (c.descriptor || '') + ')'"></option>
+          </template>
+        </select>
+        <div class="text-[11px] text-gray-400 mt-1">
+          신규 고객은 먼저 위 "✨ 새 고객 상담 시작" 으로 등록하세요.
+        </div>
+      </div>
+      <!-- 상담 종류 -->
+      <div class="mb-3">
+        <div class="text-xs text-gray-500 dark:text-gray-400 mb-1">상담 종류</div>
+        <div class="flex gap-2">
+          <template x-for="t in ['초도상담','디자인미팅','견적미팅']" :key="t">
+            <button @click="audioImport.meetingType = t"
+                    :class="audioImport.meetingType === t ? 'bg-purple-600 text-white border-purple-600' : 'border-gray-300 dark:border-gray-600 hover:border-purple-400'"
+                    class="text-sm flex-1 px-3 py-2 border rounded transition" x-text="t"></button>
+          </template>
+        </div>
+      </div>
+      <!-- 시작 시각 (선택) -->
+      <div class="mb-3">
+        <div class="text-xs text-gray-500 dark:text-gray-400 mb-1">시작 시각 (비워두면 파일 수정 시각 자동 사용)</div>
+        <input x-model="audioImport.startedAt" type="datetime-local"
+               class="w-full text-sm border border-gray-300 dark:border-gray-600 rounded px-3 py-2 bg-white dark:bg-gray-700 dark:text-gray-100"/>
+      </div>
+      <div x-show="audioImport.error" x-cloak class="text-sm text-red-600 dark:text-red-400 mb-3" x-text="audioImport.error"></div>
+      <div class="flex justify-end gap-2">
+        <button @click="closeAudioImport()" class="px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-700">취소</button>
+        <button @click="confirmAudioImport()" :disabled="audioImport.busy || !audioImport.path || !audioImport.clientFolderName"
+                class="px-4 py-1.5 text-sm bg-purple-600 hover:bg-purple-700 text-white rounded font-medium disabled:opacity-50">
+          <span x-show="!audioImport.busy">🎙 상담 만들기</span>
+          <span x-show="audioImport.busy" x-cloak>처리 중...</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========================================
        신규 고객 생성 모달
        ======================================== -->
   <div x-show="showNewClientModal" x-cloak
        class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
        @keydown.escape.window="closeNewClientModal()">
-    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg p-6"
+    <div class="bg-white dark:bg-gray-800 dark:text-gray-100 rounded-2xl shadow-2xl w-full max-w-lg p-6"
          @click.outside="closeNewClientModal()">
       <div class="flex items-center justify-between mb-4">
         <h2 class="text-lg font-bold flex items-center gap-2">
           <span>✨</span> 새 고객 등록
         </h2>
-        <button @click="closeNewClientModal()" class="text-gray-400 hover:text-gray-700 text-xl leading-none">×</button>
+        <button @click="closeNewClientModal()" class="text-gray-400 hover:text-gray-700 dark:text-gray-200 text-xl leading-none">×</button>
       </div>
 
       <div class="space-y-4">
         <!-- 이름 -->
         <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">
+          <label class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">
             고객 이름 <span class="text-red-500">*</span>
           </label>
           <input type="text" x-model="newClient.name" @input="updatePreview()"
                  placeholder="예: 김민수"
-                 class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                 class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                  autofocus />
         </div>
 
         <!-- 괄호 내용 -->
         <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">
-            아파트·단지·평형 <span class="text-gray-400 text-xs">(선택, 괄호 안에 들어갑니다)</span>
+          <label class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">
+            아파트·단지·평형 <span class="text-gray-400 dark:text-gray-500 text-xs">(선택, 괄호 안에 들어갑니다)</span>
           </label>
           <input type="text" x-model="newClient.descriptor" @input="updatePreview()"
                  placeholder="예: 잠실 리센츠_33평a타입"
-                 class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
-          <div class="text-xs text-gray-500 mt-1">비워 두면 이름만으로 폴더를 만듭니다.</div>
+                 class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          <div class="text-xs text-gray-500 dark:text-gray-400 dark:text-gray-500 mt-1">비워 두면 이름만으로 폴더를 만듭니다.</div>
         </div>
 
         <!-- 폴더명 미리보기 -->
-        <div class="bg-blue-50 border border-blue-200 rounded-lg p-3">
-          <div class="text-xs text-blue-700 font-medium mb-1">📁 생성될 폴더명</div>
-          <div x-show="preview.valid" class="font-mono text-sm text-blue-900 break-all" x-text="preview.folderName"></div>
-          <div x-show="!preview.valid" class="text-sm text-red-600" x-text="preview.reason || '이름을 입력해 주세요.'"></div>
-          <div x-show="preview.valid && preview.exists" class="text-xs text-red-600 font-medium mt-1">
+        <div class="bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-700/50 rounded-lg p-3">
+          <div class="text-xs text-blue-700 dark:text-blue-300 font-medium mb-1">📁 생성될 폴더명</div>
+          <div x-show="preview.valid" class="font-mono text-sm text-blue-900 dark:text-blue-200 break-all" x-text="preview.folderName"></div>
+          <div x-show="!preview.valid" class="text-sm text-red-600 dark:text-red-400" x-text="preview.reason || '이름을 입력해 주세요.'"></div>
+          <div x-show="preview.valid && preview.exists" class="text-xs text-red-600 dark:text-red-400 font-medium mt-1">
             ⚠ 같은 이름의 폴더가 이미 존재합니다.
           </div>
         </div>
 
+        <!-- v3.0.0: 연락처 + 방문경로 -->
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">전화번호 <span class="text-gray-400">(선택)</span></label>
+            <input type="tel" x-model="newClient.phone"
+                   placeholder="010-0000-0000"
+                   class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">방문 경로 <span class="text-gray-400">(선택)</span></label>
+            <select x-model="newClient.visit_source"
+                    class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+              <option value="">선택 안 함</option>
+              <option>인스타그램</option>
+              <option>블로그</option>
+              <option>지인소개</option>
+              <option>쇼핑몰 방문</option>
+              <option>기타</option>
+            </select>
+          </div>
+        </div>
+
         <!-- 생성될 서브폴더 안내 -->
-        <div class="text-xs text-gray-500 leading-relaxed">
-          <div class="font-medium text-gray-700 mb-1">함께 생성되는 서브폴더 6개</div>
-          <code class="bg-gray-100 px-1 rounded">ETC</code> ·
-          <code class="bg-gray-100 px-1 rounded">렌더이미지_요청</code> ·
-          <code class="bg-gray-100 px-1 rounded">제안서 관련</code> ·
-          <code class="bg-gray-100 px-1 rounded">현장 이미지</code> ·
-          <code class="bg-gray-100 px-1 rounded">휴지통</code> ·
-          <code class="bg-gray-100 px-1 rounded">상담기록</code>
+        <div class="text-xs text-gray-500 dark:text-gray-400 dark:text-gray-500 leading-relaxed">
+          <div class="font-medium text-gray-700 dark:text-gray-200 mb-1">함께 생성되는 서브폴더 6개</div>
+          <code class="bg-gray-100 dark:bg-gray-700 px-1 rounded">ETC</code> ·
+          <code class="bg-gray-100 dark:bg-gray-700 px-1 rounded">렌더이미지_요청</code> ·
+          <code class="bg-gray-100 dark:bg-gray-700 px-1 rounded">제안서 관련</code> ·
+          <code class="bg-gray-100 dark:bg-gray-700 px-1 rounded">현장 이미지</code> ·
+          <code class="bg-gray-100 dark:bg-gray-700 px-1 rounded">휴지통</code> ·
+          <code class="bg-gray-100 dark:bg-gray-700 px-1 rounded">상담기록</code>
         </div>
 
         <!-- 에러 -->
         <div x-show="newClientError" x-cloak
-             class="bg-red-50 border border-red-300 rounded-lg p-3 text-sm text-red-700 break-all"
+             class="bg-red-50 border border-red-300 dark:border-red-700 rounded-lg p-3 text-sm text-red-700 break-all"
              x-text="newClientError"></div>
       </div>
 
       <div class="mt-6 flex justify-end gap-2">
         <button @click="closeNewClientModal()"
-                class="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-md">
+                class="px-4 py-2 text-sm text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:bg-gray-700 rounded-md">
           취소
         </button>
         <button @click="submitNewClient()"
@@ -378,29 +1069,29 @@
   <div x-show="showActionModal" x-cloak
        class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
        @keydown.escape.window="closeActionModal()">
-    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg p-6"
+    <div class="bg-white dark:bg-gray-800 dark:text-gray-100 rounded-2xl shadow-2xl w-full max-w-lg p-6"
          @click.outside="closeActionModal()">
       <div class="flex items-center justify-between mb-4">
         <h2 class="text-lg font-bold flex items-center gap-2">
           <span>🗂</span> 작업 선택
         </h2>
-        <button @click="closeActionModal()" class="text-gray-400 hover:text-gray-700 text-xl leading-none">×</button>
+        <button @click="closeActionModal()" class="text-gray-400 hover:text-gray-700 dark:text-gray-200 text-xl leading-none">×</button>
       </div>
 
-      <div class="mb-4 bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm">
-        <div class="text-xs text-gray-500 mb-0.5">고객</div>
+      <div class="mb-4 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-3 text-sm">
+        <div class="text-xs text-gray-500 dark:text-gray-400 dark:text-gray-500 mb-0.5">고객</div>
         <div class="font-semibold" x-text="actionCtx.clientDisplay"></div>
-        <div class="text-xs text-gray-500 font-mono break-all" x-text="actionCtx.folderName"></div>
+        <div class="text-xs text-gray-500 dark:text-gray-400 dark:text-gray-500 font-mono break-all" x-text="actionCtx.folderName"></div>
       </div>
 
       <div class="grid grid-cols-1 gap-3">
         <button @click="actionStartNew()"
-                class="text-left px-5 py-4 rounded-lg border-2 border-gray-200 hover:border-blue-400 hover:bg-blue-50 transition">
+                class="text-left px-5 py-4 rounded-lg border-2 border-gray-200 dark:border-gray-700 hover:border-blue-400 hover:bg-blue-50 dark:bg-blue-900/30 transition">
           <div class="flex items-start gap-3">
             <span class="text-2xl">✨</span>
             <div class="flex-1">
               <div class="font-semibold">신규 녹음 시작</div>
-              <div class="text-xs text-gray-500 mt-0.5">
+              <div class="text-xs text-gray-500 dark:text-gray-400 dark:text-gray-500 mt-0.5">
                 초도상담 / 디자인미팅 / 견적미팅 중 선택해서 새 녹음을 시작합니다.
               </div>
             </div>
@@ -409,17 +1100,17 @@
 
         <button @click="actionViewPast()"
                 :disabled="loadingPast"
-                class="text-left px-5 py-4 rounded-lg border-2 border-gray-200 hover:border-emerald-400 hover:bg-emerald-50 transition disabled:opacity-60">
+                class="text-left px-5 py-4 rounded-lg border-2 border-gray-200 dark:border-gray-700 hover:border-emerald-400 hover:bg-emerald-50 dark:bg-emerald-900/30 transition disabled:opacity-60">
           <div class="flex items-start gap-3">
             <span class="text-2xl">📂</span>
             <div class="flex-1">
               <div class="font-semibold flex items-center gap-2">
                 <span>기존 상담 내용 보기</span>
                 <span x-show="actionCtx.numMeetings > 0"
-                      class="text-[11px] px-1.5 py-0.5 bg-emerald-100 text-emerald-800 rounded"
+                      class="text-[11px] px-1.5 py-0.5 bg-emerald-100 dark:bg-emerald-800/40 text-emerald-800 rounded"
                       x-text="actionCtx.numMeetings + '건 저장됨'"></span>
               </div>
-              <div class="text-xs text-gray-500 mt-0.5">
+              <div class="text-xs text-gray-500 dark:text-gray-400 dark:text-gray-500 mt-0.5">
                 전사 카드, 음성 파일, AI 요약 등 이전 녹음 결과를 다시 봅니다.
               </div>
             </div>
@@ -436,33 +1127,33 @@
   <div x-show="showPastModal" x-cloak
        class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
        @keydown.escape.window="closePastModal()">
-    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col"
+    <div class="bg-white dark:bg-gray-800 dark:text-gray-100 rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col"
          @click.outside="closePastModal()">
-      <div class="px-6 py-4 border-b border-gray-100 flex items-center justify-between sticky top-0 bg-white z-10">
+      <div class="px-6 py-4 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between sticky top-0 bg-white dark:bg-gray-800 z-10">
         <h2 class="text-lg font-bold flex items-center gap-2">
           <span>📂</span> 기존 상담 목록
-          <span class="text-sm text-gray-500 font-normal" x-text="actionCtx.clientDisplay"></span>
+          <span class="text-sm text-gray-500 dark:text-gray-400 dark:text-gray-500 font-normal" x-text="actionCtx.clientDisplay"></span>
         </h2>
-        <button @click="closePastModal()" class="text-gray-400 hover:text-gray-700 text-xl leading-none">×</button>
+        <button @click="closePastModal()" class="text-gray-400 hover:text-gray-700 dark:text-gray-200 text-xl leading-none">×</button>
       </div>
 
       <div class="overflow-y-auto flex-1">
-        <div x-show="loadingPast" x-cloak class="p-8 text-center text-gray-400 text-sm">
+        <div x-show="loadingPast" x-cloak class="p-8 text-center text-gray-400 dark:text-gray-500 text-sm">
           <div class="inline-block w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
           <div class="mt-2">불러오는 중...</div>
         </div>
 
         <div x-show="!loadingPast && pastMeetings.length === 0" x-cloak
-             class="p-10 text-center text-gray-400 text-sm">
+             class="p-10 text-center text-gray-400 dark:text-gray-500 text-sm">
           저장된 상담이 없습니다. <br>
           위 메뉴에서 <strong>신규 녹음 시작</strong> 으로 첫 상담을 진행하세요.
         </div>
 
-        <ul x-show="!loadingPast && pastMeetings.length > 0" x-cloak class="divide-y divide-gray-100">
+        <ul x-show="!loadingPast && pastMeetings.length > 0" x-cloak class="divide-y divide-gray-100 dark:divide-gray-700">
           <template x-for="m in pastMeetings" :key="m.id">
             <li @click="openPastMeeting(m.id)"
-                class="px-5 py-4 hover:bg-emerald-50 cursor-pointer flex items-start gap-3">
-              <div class="shrink-0 w-12 h-12 rounded-lg bg-gradient-to-br from-emerald-100 to-emerald-200 flex items-center justify-center text-emerald-700 text-xl">
+                class="px-5 py-4 hover:bg-emerald-50 dark:bg-emerald-900/30 cursor-pointer flex items-start gap-3">
+              <div class="shrink-0 w-12 h-12 rounded-lg bg-gradient-to-br from-emerald-100 to-emerald-200 flex items-center justify-center text-emerald-700 dark:text-emerald-300 text-xl">
                 <span x-show="m.meeting_type === '초도상담'">☕</span>
                 <span x-show="m.meeting_type === '디자인미팅'">📐</span>
                 <span x-show="m.meeting_type === '견적미팅'">💰</span>
@@ -470,17 +1161,17 @@
               <div class="flex-1 min-w-0">
                 <div class="flex items-center gap-2 flex-wrap">
                   <span class="font-semibold" x-text="m.meeting_type"></span>
-                  <span class="text-xs text-gray-500" x-text="(m.started_at || '').replace('T', ' ')"></span>
+                  <span class="text-xs text-gray-500 dark:text-gray-400 dark:text-gray-500" x-text="(m.started_at || '').replace('T', ' ')"></span>
                   <span x-show="m.has_analysis"
-                        class="text-[10px] px-1.5 py-0.5 bg-purple-100 text-purple-800 rounded">AI ✓</span>
+                        class="text-[10px] px-1.5 py-0.5 bg-purple-100 dark:bg-purple-800/40 text-purple-800 rounded">AI ✓</span>
                   <span x-show="!m.audio_exists"
-                        class="text-[10px] px-1.5 py-0.5 bg-amber-100 text-amber-800 rounded">파일 없음</span>
+                        class="text-[10px] px-1.5 py-0.5 bg-amber-100 dark:bg-amber-800/40 text-amber-800 dark:text-amber-300 rounded">파일 없음</span>
                 </div>
-                <div class="text-xs text-gray-600 mt-1 flex flex-wrap gap-3">
+                <div class="text-xs text-gray-600 dark:text-gray-300 mt-1 flex flex-wrap gap-3">
                   <span>⏱ <span x-text="formatDuration(m.duration_sec)"></span></span>
                   <span>💬 <span x-text="m.segments_count + '건 카드'"></span></span>
                 </div>
-                <div class="text-[11px] text-gray-400 font-mono mt-1 truncate" x-text="m.meeting_folder"></div>
+                <div class="text-[11px] text-gray-400 dark:text-gray-500 font-mono mt-1 truncate" x-text="m.meeting_folder"></div>
               </div>
               <div class="shrink-0 self-center text-emerald-600">→</div>
             </li>
@@ -488,7 +1179,7 @@
         </ul>
       </div>
 
-      <div class="px-6 py-3 border-t border-gray-100 text-xs text-gray-500 leading-relaxed">
+      <div class="px-6 py-3 border-t border-gray-100 dark:border-gray-700 text-xs text-gray-500 dark:text-gray-400 dark:text-gray-500 leading-relaxed">
         클릭하면 해당 상담의 카드·음성·AI 요약이 다시 열립니다. 화자 라벨도 그대로 편집 가능합니다.
       </div>
     </div>
@@ -501,31 +1192,31 @@
   <div x-show="showMeetingModal" x-cloak
        class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
        @keydown.escape.window="closeMeetingModal()">
-    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg p-6"
+    <div class="bg-white dark:bg-gray-800 dark:text-gray-100 rounded-2xl shadow-2xl w-full max-w-lg p-6"
          @click.outside="closeMeetingModal()">
       <div class="flex items-center justify-between mb-4">
         <h2 class="text-lg font-bold flex items-center gap-2">
           <span>🎯</span> 상담 종류 선택
         </h2>
-        <button @click="closeMeetingModal()" class="text-gray-400 hover:text-gray-700 text-xl leading-none">×</button>
+        <button @click="closeMeetingModal()" class="text-gray-400 hover:text-gray-700 dark:text-gray-200 text-xl leading-none">×</button>
       </div>
 
-      <div class="mb-4 bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm">
-        <div class="text-xs text-gray-500 mb-0.5">고객</div>
+      <div class="mb-4 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-3 text-sm">
+        <div class="text-xs text-gray-500 dark:text-gray-400 dark:text-gray-500 mb-0.5">고객</div>
         <div class="font-semibold" x-text="meetingCtx.clientDisplay"></div>
-        <div class="text-xs text-gray-500 font-mono break-all" x-text="meetingCtx.folderName"></div>
+        <div class="text-xs text-gray-500 dark:text-gray-400 dark:text-gray-500 font-mono break-all" x-text="meetingCtx.folderName"></div>
       </div>
 
       <div class="space-y-2">
         <template x-for="mt in meetingTypes" :key="mt.key">
           <button @click="pickMeetingType(mt.key)"
                   :disabled="creatingMeeting"
-                  class="w-full text-left px-4 py-3 rounded-lg border-2 transition hover:border-blue-400 hover:bg-blue-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                  :class="meetingCtx.picked === mt.key ? 'border-blue-500 bg-blue-50' : 'border-gray-200'">
+                  class="w-full text-left px-4 py-3 rounded-lg border-2 transition hover:border-blue-400 hover:bg-blue-50 dark:bg-blue-900/30 disabled:opacity-50 disabled:cursor-not-allowed"
+                  :class="meetingCtx.picked === mt.key ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/30' : 'border-gray-200 dark:border-gray-700'">
             <div class="flex items-center justify-between">
               <div>
                 <div class="font-semibold" x-text="mt.label"></div>
-                <div class="text-xs text-gray-500" x-text="mt.hint"></div>
+                <div class="text-xs text-gray-500 dark:text-gray-400 dark:text-gray-500" x-text="mt.hint"></div>
               </div>
               <span class="text-2xl" x-text="mt.icon"></span>
             </div>
@@ -534,17 +1225,17 @@
       </div>
 
       <div x-show="meetingError" x-cloak
-           class="mt-4 bg-red-50 border border-red-300 rounded-lg p-3 text-sm text-red-700 break-all"
+           class="mt-4 bg-red-50 border border-red-300 dark:border-red-700 rounded-lg p-3 text-sm text-red-700 break-all"
            x-text="meetingError"></div>
 
-      <div x-show="creatingMeeting" x-cloak class="mt-4 text-center text-sm text-gray-500">
+      <div x-show="creatingMeeting" x-cloak class="mt-4 text-center text-sm text-gray-500 dark:text-gray-400 dark:text-gray-500">
         <span class="inline-block w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin align-middle"></span>
         <span class="ml-2">상담 준비 중...</span>
       </div>
 
-      <div class="mt-5 text-xs text-gray-500 leading-relaxed border-t border-gray-100 pt-3">
+      <div class="mt-5 text-xs text-gray-500 dark:text-gray-400 dark:text-gray-500 leading-relaxed border-t border-gray-100 dark:border-gray-700 pt-3">
         선택하면 녹음 화면으로 이동합니다. 종료 후 자동으로
-        <code class="bg-gray-100 px-1 rounded">상담기록\{날짜}_{상담종류}</code> 폴더에 저장됩니다.
+        <code class="bg-gray-100 dark:bg-gray-700 px-1 rounded">상담기록\{날짜}_{상담종류}</code> 폴더에 저장됩니다.
       </div>
     </div>
   </div>
@@ -560,10 +1251,24 @@ function homePage() {
     root: '',
     rootExists: false,
     search: '',
+    sortBy: 'recent',  // v2.5.0 J: 'recent' | 'name' | 'meetings'
+    filterStage: '',   // v3.0.0: 단계 필터 '' = 전체
+    stages: [],        // v3.0.0: API 에서 채워짐
+
+    // --- v3.5.5: 외부 음성 파일 임포트 모달 ---
+    audioImport: {
+      show: false,
+      path: '',
+      clientFolderName: '',
+      meetingType: '초도상담',
+      startedAt: '',
+      busy: false,
+      error: '',
+    },
 
     // --- 신규 고객 모달 ---
     showNewClientModal: false,
-    newClient: { name: '', descriptor: '' },
+    newClient: { name: '', descriptor: '', phone: '', visit_source: '' },
     preview: { valid: false, folderName: '', exists: false, reason: '' },
     creating: false,
     newClientError: '',
@@ -575,6 +1280,22 @@ function homePage() {
     appVersion: '?',
     changelog: [],
     updateInfo: null,
+
+    // --- Phase 8D: 빠른 업데이트 ---
+    quickUpdateState: 'idle',  // idle | running | error
+    quickUpdateError: '',
+    lastUpdateResult: null,    // {kind: 'applied'|'rollback', version}
+
+    // --- v2.5.5: Ollama 가용성 (환영 팝업의 첫 실행 안내) ---
+    ollamaState: 'checking',   // checking | ok | no_ollama | no_model
+    ollamaInfo: null,
+
+    // --- v2.7.0 P-extra: 최근 본 상담 5건 (localStorage) ---
+    recentMeetings: [],
+
+    // --- v2.7.0 V: 온보딩 튜토리얼 (처음 실행 시 1회) ---
+    showOnboarding: false,
+    onboardingStep: 1,
 
     // --- 액션 선택 + 과거 상담 목록 모달 (Phase 6C) ---
     showActionModal: false,
@@ -599,9 +1320,120 @@ function homePage() {
     meetingError: '',
 
     async init() {
+      // Phase 8D: 직전 빠른 업데이트 결과 마커 소비 (있으면 토스트 표시 트리거)
+      this.consumeUpdateMarker();
       // 환영 모달 체크 — 고객 목록보다 먼저
       this.checkWelcome();
+      // v2.5.5: Ollama 가용성 백그라운드 체크 (await 안 함 — 고객 목록 로딩과 병렬)
+      this.checkOllamaHealth();
+      // v2.7.0 P-extra: 최근 본 상담 localStorage 에서 로드
+      this._loadRecentMeetings();
+      // v2.7.0 V: 온보딩 (첫 실행 시만 자동 노출)
+      this._checkOnboarding();
+      // ④ 오늘 일정 로드
+      this.loadAppointments();
       await this.reload();
+    },
+
+    // v2.7.0 P-extra: 최근 본 상담 5건 (localStorage 키: interionote.recent_meetings)
+    _loadRecentMeetings() {
+      try {
+        const raw = localStorage.getItem('interionote.recent_meetings');
+        const arr = raw ? JSON.parse(raw) : [];
+        this.recentMeetings = Array.isArray(arr) ? arr.slice(0, 5) : [];
+      } catch (e) { this.recentMeetings = []; }
+    },
+    clearRecentMeetings() {
+      try { localStorage.removeItem('interionote.recent_meetings'); } catch (e) {}
+      this.recentMeetings = [];
+    },
+
+    // ===== v2.7.0 V: 온보딩 튜토리얼 (처음 실행 시 1회만) =====
+    // v2.7.1 fix: 환영 팝업이 우선 떠도 그 팝업 닫힌 직후 트리거되도록 변경.
+    _onboardingPending: false,  // "환영 팝업 닫히면 띄워야 함" 플래그
+    _checkOnboarding() {
+      try {
+        if (localStorage.getItem('interionote.onboarding_done') === '1') return;
+        // 환영 팝업이 떠있으면 그게 닫힐 때까지 대기 (closeWelcome 에서 트리거)
+        if (this.showWelcome) {
+          this._onboardingPending = true;
+          return;
+        }
+        // 환영 팝업 안 뜨면 즉시 노출
+        setTimeout(() => {
+          if (localStorage.getItem('interionote.onboarding_done') !== '1' && !this.showWelcome) {
+            this.onboardingStep = 1;
+            this.showOnboarding = true;
+          }
+        }, 400);
+      } catch (e) { /* localStorage 비활성 환경 */ }
+    },
+    onboardingSkip() {
+      this.showOnboarding = false;
+      this._onboardingPending = false;
+      try { localStorage.setItem('interionote.onboarding_done', '1'); } catch (e) {}
+    },
+    onboardingFinish() {
+      this.showOnboarding = false;
+      this._onboardingPending = false;
+      try { localStorage.setItem('interionote.onboarding_done', '1'); } catch (e) {}
+    },
+    // 환영 모달의 [앱 정보 / 변경 이력 보기] 옆에 "튜토리얼 다시 보기" 버튼용
+    showOnboardingAgain() {
+      this.showWelcome = false;
+      this._onboardingPending = false;
+      this.onboardingStep = 1;
+      this.showOnboarding = true;
+    },
+
+    // ===== v2.5.5: Ollama 가용성 체크 (환영 팝업의 첫 실행 안내) =====
+    async checkOllamaHealth() {
+      try {
+        const r = await fetch('/api/ollama/health');
+        const data = await r.json().catch(() => null);
+        if (!data) {
+          this.ollamaState = 'no_ollama';
+          return;
+        }
+        this.ollamaInfo = data;
+        if (!data.ok) {
+          this.ollamaState = 'no_ollama';
+        } else if (!data.model_ready) {
+          this.ollamaState = 'no_model';
+        } else {
+          this.ollamaState = 'ok';
+        }
+      } catch (e) {
+        this.ollamaState = 'no_ollama';
+      }
+    },
+
+    async recheckOllama() {
+      this.ollamaState = 'checking';
+      await this.checkOllamaHealth();
+    },
+
+    openOllamaDownload() {
+      const url = 'https://ollama.com/download/windows';
+      if (window.pywebview && window.pywebview.api && window.pywebview.api.open_external_url) {
+        window.pywebview.api.open_external_url(url);
+      } else {
+        window.open(url, '_blank');
+      }
+    },
+
+    // Phase 8D: 빠른 업데이트 직후 첫 실행 시 마커 읽고 삭제 → 결과 토스트
+    async consumeUpdateMarker() {
+      try {
+        const r = await fetch('/api/app/quick-update/consume-marker', {method: 'POST'});
+        if (!r.ok) return;
+        const data = await r.json();
+        if (data && data.marker) {
+          this.lastUpdateResult = data.marker;
+          // applied/rollback 토스트 보이려면 환영 팝업도 자동 노출
+          this.showWelcome = true;
+        }
+      } catch (e) { /* ignore */ }
     },
 
     // ===== 환영 / 패치 노트 + 업데이트 자동 체크 =====
@@ -645,6 +1477,50 @@ function homePage() {
       }
     },
 
+    // ----- Phase 8D: 빠른 업데이트 실행 -----
+    async runQuickUpdateFromWelcome() {
+      if (this.quickUpdateState === 'running') return;
+      const info = this.updateInfo || {};
+      const qu = info.quick_update || {};
+      if (!qu.url || !info.latest_version) {
+        this.quickUpdateError = '빠른 업데이트 자산을 찾지 못했습니다. 전체 인스톨러로 받아주세요.';
+        return;
+      }
+      const sizeKB = Math.round((qu.size || 0) / 1024);
+      const ok = confirm(
+        '빠른 업데이트를 적용할까요?\n\n' +
+        '- 다운로드: 약 ' + sizeKB + 'KB\n' +
+        '- 새 버전: v' + info.latest_version + '\n' +
+        '- 사용자 데이터(고객 폴더·DB·녹음)는 모두 그대로 보존됩니다.\n\n' +
+        '확인을 누르면 다운로드 → 자동 적용 → 앱 재시작 순으로 진행됩니다.'
+      );
+      if (!ok) return;
+
+      this.quickUpdateState = 'running';
+      this.quickUpdateError = '';
+      try {
+        const r = await fetch('/api/app/quick-update/run', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({
+            download_url: qu.url,
+            expected_version: info.latest_version,
+            // expected_sha256 는 외부 manifest 없이는 모름 — 일단 생략 (zip 내부 manifest 로 호환성 검증은 됨)
+          }),
+        });
+        if (!r.ok) {
+          const err = await r.json().catch(() => ({detail: r.statusText}));
+          throw new Error(err.detail || ('HTTP ' + r.status));
+        }
+        // 백엔드가 1초 후 앱을 종료시킴 — UI 는 그동안 "적용 중" 상태 유지
+        // 사용자에게 자동 재시작 안내
+        // (이 함수가 끝나기 전에 앱이 죽을 수 있어 finally 가 안 돌 수도 있음)
+      } catch (e) {
+        this.quickUpdateError = '빠른 업데이트 실패: ' + (e.message || String(e));
+        this.quickUpdateState = 'error';
+      }
+    },
+
     closeWelcome(dontShowAgain) {
       if (dontShowAgain) {
         try {
@@ -652,6 +1528,16 @@ function homePage() {
         } catch (e) {}
       }
       this.showWelcome = false;
+      // v2.7.1 fix: 환영 팝업 닫혔는데 온보딩이 대기 중이면 이어서 노출
+      if (this._onboardingPending) {
+        this._onboardingPending = false;
+        setTimeout(() => {
+          if (localStorage.getItem('interionote.onboarding_done') !== '1') {
+            this.onboardingStep = 1;
+            this.showOnboarding = true;
+          }
+        }, 350);  // 모달 close 애니메이션 후
+      }
     },
 
     get latestEntry() {
@@ -669,6 +1555,7 @@ function homePage() {
         this.clients = data.clients || [];
         this.root = data.root || '';
         this.rootExists = !!data.root_exists;
+        if (data.stages && this.stages.length === 0) this.stages = data.stages;
       } catch (e) {
         console.error(e);
       } finally {
@@ -677,22 +1564,208 @@ function homePage() {
     },
 
     get filteredClients() {
-      if (!this.search.trim()) return this.clients;
+      // v2.5.0 J + v3.0.0: 검색 + 단계 필터 + 정렬
+      let arr = this.clients;
       const q = this.search.trim().toLowerCase();
-      return this.clients.filter(c =>
-        (c.name || '').toLowerCase().includes(q)
-        || (c.descriptor || '').toLowerCase().includes(q)
-        || (c.folder_name || '').toLowerCase().includes(q)
-      );
+      if (q) {
+        arr = arr.filter(c =>
+          (c.name || '').toLowerCase().includes(q)
+          || (c.descriptor || '').toLowerCase().includes(q)
+          || (c.folder_name || '').toLowerCase().includes(q)
+          || (c.phone || '').replace(/-/g, '').includes(q.replace(/-/g, ''))
+        );
+      }
+      // v3.0.0: 단계 필터
+      if (this.filterStage) {
+        arr = arr.filter(c => (c.stage || '') === this.filterStage);
+      }
+      const sorted = arr.slice();
+      if (this.sortBy === 'name') {
+        sorted.sort((a, b) => (a.name || '').localeCompare(b.name || '', 'ko'));
+      } else if (this.sortBy === 'meetings') {
+        sorted.sort((a, b) => (b.num_meetings || 0) - (a.num_meetings || 0));
+      } else {
+        // recent (기본): mtime 내림차순 (스캐너가 mtime 추가)
+        sorted.sort((a, b) => (b.mtime || 0) - (a.mtime || 0));
+      }
+      return sorted;
+    },
+
+    // v2.6.0 P: 즐겨찾기 (이름순)
+    get favoriteClients() {
+      return this.clients.filter(c => c.is_favorite)
+        .sort((a, b) => (a.name || '').localeCompare(b.name || '', 'ko'));
+    },
+
+    // ④ 일정 관리
+    appointments: [],
+    recentlyCompleted: [],
+    loadingAppointments: false,
+
+    async loadAppointments() {
+      this.loadingAppointments = true;
+      try {
+        const [r1, r2] = await Promise.all([
+          fetch('/api/appointments'),
+          fetch('/api/appointments/recently-completed'),
+        ]);
+        if (r1.ok) this.appointments = await r1.json();
+        if (r2.ok) this.recentlyCompleted = await r2.json();
+      } catch (e) { /* ignore */ } finally {
+        this.loadingAppointments = false;
+      }
+    },
+
+    ddayLabel(a) {
+      if (a.dday === null || a.dday === undefined) return '';
+      if (a.dday < 0) return 'D+' + Math.abs(a.dday);
+      if (a.dday === 0) return 'D-Day';
+      return 'D-' + a.dday;
+    },
+
+    ddayClass(a) {
+      if (a.dday === 0) return 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300';
+      if (a.dday > 0 && a.dday <= 3) return 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200';
+      return 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-200';
+    },
+
+    async completeAppointment(id) {
+      try {
+        const r = await fetch('/api/appointments/' + id, {
+          method: 'PATCH',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({completed: true}),
+        });
+        const updated = r.ok ? await r.json() : null;
+        this.appointments = this.appointments.filter(a => a.id !== id);
+        // 최근 완료 섹션에 추가
+        if (updated) {
+          this.recentlyCompleted = [updated, ...this.recentlyCompleted];
+        }
+      } catch (e) { alert('완료 처리 실패: ' + e.message); }
+    },
+
+    // ① 칸반 보기
+    viewMode: 'list',   // 'list' | 'kanban'
+
+    get kanbanGroups() {
+      const stages = ['초도', '디자인', '견적', '계약', '시공', '완료'];
+      const q = this.search.trim().toLowerCase();
+      let arr = this.clients;
+      if (q) {
+        arr = arr.filter(c =>
+          (c.name || '').toLowerCase().includes(q)
+          || (c.descriptor || '').toLowerCase().includes(q)
+          || (c.phone || '').replace(/-/g,'').includes(q.replace(/-/g,''))
+        );
+      }
+      return stages.map(stage => ({
+        stage,
+        clients: arr.filter(c => (c.stage || '초도') === stage)
+                    .sort((a,b) => (b.mtime||0) - (a.mtime||0)),
+      }));
+    },
+
+    // v2.6.0 L: 진행 단계별 색상 (Tailwind 클래스)
+    stageColor(stage) {
+      const map = {
+        '초도':   'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200',
+        '디자인': 'bg-blue-100 dark:bg-blue-800/40 text-blue-800 dark:text-blue-200',
+        '견적':   'bg-amber-100 dark:bg-amber-800/40 text-amber-800 dark:text-amber-200',
+        '계약':   'bg-emerald-100 dark:bg-emerald-800/40 text-emerald-800 dark:text-emerald-200',
+        '시공':   'bg-purple-100 dark:bg-purple-800/40 text-purple-800 dark:text-purple-200',
+        '완료':   'bg-gray-200 dark:bg-gray-600 text-gray-600 dark:text-gray-300',
+      };
+      return map[stage] || map['초도'];
+    },
+
+    // v2.6.0 P: 즐겨찾기 토글 (낙관적 UI 업데이트)
+    async toggleFavorite(c) {
+      if (!c.client_id) {
+        // DB row 없으면 폴더 클릭으로 먼저 client 생성 필요
+        alert('이 고객을 한 번 클릭해서 등록한 후 즐겨찾기 가능합니다.');
+        return;
+      }
+      const original = !!c.is_favorite;
+      c.is_favorite = !original;
+      try {
+        const r = await fetch('/api/clients/' + c.client_id + '/favorite', {method: 'POST'});
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        const data = await r.json();
+        c.is_favorite = data.is_favorite;
+      } catch (e) {
+        c.is_favorite = original;
+        alert('즐겨찾기 변경 실패: ' + (e.message || e));
+      }
+    },
+
+    // v2.6.0 EE: 고객 360 뷰 진입
+    openCustomer360(c) {
+      if (!c.client_id) {
+        alert('이 고객을 한 번 클릭해서 등록한 후 360 뷰 사용 가능합니다.');
+        return;
+      }
+      window.location.href = '/customer/' + c.client_id;
     },
 
     openPicker() {
       alert('아래 고객 목록에서 선택하시면 됩니다.');
     },
 
+    // --- v3.5.5: 외부 음성 파일 임포트 ---
+    openAudioImport() {
+      this.audioImport.show = true;
+      this.audioImport.path = '';
+      this.audioImport.clientFolderName = '';
+      this.audioImport.meetingType = '초도상담';
+      this.audioImport.startedAt = '';
+      this.audioImport.error = '';
+      this.audioImport.busy = false;
+    },
+    closeAudioImport() { this.audioImport.show = false; },
+    async pickAudioFile() {
+      try {
+        if (!window.pywebview || !window.pywebview.api || !window.pywebview.api.pick_audio_file) {
+          // pick_audio_file 이 JS bridge 에 없으면 일반 텍스트 입력으로 안내
+          alert('현재 버전에서는 파일 경로를 직접 입력하세요. 다음 빌드에서 파일 선택 다이얼로그가 추가됩니다.');
+          return;
+        }
+        const r = await window.pywebview.api.pick_audio_file();
+        if (r) this.audioImport.path = r;
+      } catch(e) { this.audioImport.error = '파일 선택 실패: ' + e; }
+    },
+    async confirmAudioImport() {
+      const a = this.audioImport;
+      if (!a.path || !a.clientFolderName) {
+        a.error = '파일과 고객을 모두 선택하세요.';
+        return;
+      }
+      a.busy = true;
+      a.error = '';
+      try {
+        const r = await fetch('/api/import/audio-file', {
+          method: 'POST',
+          headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({
+            audio_path: a.path,
+            client_folder_name: a.clientFolderName,
+            meeting_type: a.meetingType,
+            started_at: a.startedAt || null,
+          }),
+        });
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.detail || '임포트 실패');
+        // 성공 → 그 상담의 view-mode 화면으로 이동 (재전사 가능)
+        this.closeAudioImport();
+        window.location.href = '/live?m=' + d.meeting_id;
+      } catch(e) {
+        a.error = e.message || String(e);
+      } finally { a.busy = false; }
+    },
+
     // --- 신규 고객 생성 플로우 ---
     startNewClient() {
-      this.newClient = { name: '', descriptor: '' };
+      this.newClient = { name: '', descriptor: '', phone: '', visit_source: '' };
       this.preview = { valid: false, folderName: '', exists: false, reason: '' };
       this.newClientError = '';
       this.creating = false;
@@ -747,6 +1820,8 @@ function homePage() {
           body: JSON.stringify({
             name: this.newClient.name.trim(),
             descriptor: (this.newClient.descriptor || '').trim(),
+            phone: (this.newClient.phone || '').trim() || null,
+            visit_source: (this.newClient.visit_source || '').trim() || null,
           }),
         });
         if (!r.ok) {
@@ -902,5 +1977,7 @@ function homePage() {
 }
 </script>
 
+  <script src="/static/remote_status_badge.js"></script>
+  <script src="/static/finalize_badge.js"></script>
 </body>
 </html>

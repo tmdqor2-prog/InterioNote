@@ -63,11 +63,35 @@ CLIENT_ROOT = Path(
 )
 
 # ========================================
-# 앱 버전 + 변경 이력 (Phase 6B)
+# 앱 버전 + 변경 이력 (v2.4.2 부터 version.json 으로 분리)
 # ========================================
-# 새 기능/패치를 추가할 때 마다 버전을 올리고 CHANGELOG 맨 위에 항목을 추가하세요.
-# 사용자가 '다시 열지 않기' 를 눌러도 버전이 바뀌면 시작 팝업이 다시 표시됩니다.
-APP_VERSION = "2.3.0"
+# Phase 8D 빠른 업데이트가 _internal/app/version.json 을 교체할 수 있도록
+# 단순 데이터 파일로 관리. config.py 는 그걸 읽기만 함.
+# 수정 시: app/version.json 만 편집. 절대 이 .py 안에 버전을 다시 박지 마세요.
+def _load_version_info() -> dict:
+    """version.json 을 읽어 버전·CHANGELOG 반환. PyInstaller 번들/dev 양쪽 대응."""
+    import json as _json
+    import sys as _sys
+    candidates = []
+    # 1) PyInstaller 번들 (--onedir): _internal/app/version.json
+    meipass = getattr(_sys, "_MEIPASS", None)
+    if meipass:
+        candidates.append(Path(meipass) / "app" / "version.json")
+    # 2) dev 모드: app/version.json (이 파일 옆)
+    candidates.append(Path(__file__).resolve().parent / "version.json")
+    for p in candidates:
+        try:
+            if p.exists():
+                with open(p, "r", encoding="utf-8") as f:
+                    return _json.load(f)
+        except Exception:
+            continue
+    # fallback (절대 일어나면 안 되지만 안전망)
+    return {"version": "0.0.0", "changelog": []}
+
+
+_VERSION_INFO = _load_version_info()
+APP_VERSION = _VERSION_INFO.get("version") or "0.0.0"
 
 # GitHub 저장소 (Phase 7B-3 자동 업데이트 확인용)
 # https://api.github.com/repos/{OWNER}/{REPO}/releases/latest 호출
@@ -75,63 +99,7 @@ APP_VERSION = "2.3.0"
 GITHUB_OWNER = "tmdqor2-prog"
 GITHUB_REPO = "InterioNote"
 
-CHANGELOG = [
-    {
-        "version": "2.3.0",
-        "date": "2026-04-25",
-        "title": "데이터 위치 분리 + 자동 업데이트 확인 + 앱 제거 안내",
-        "items": [
-            "사용자 데이터 위치를 %APPDATA%\\InterioNote\\ 로 분리 (앱 업데이트로부터 격리, 자동 마이그레이션 포함)",
-            "설정 페이지에 📦 업데이트 확인 버튼 — 최신 여부 자동 체크 + 새 버전 발견 시 다운로드 페이지 안내",
-            "설정 페이지에 🗑 앱 제거 안내 + 사용자 데이터 폴더 바로가기",
-            "시작 팝업에 새 버전 발견 시 알림 배너",
-        ],
-    },
-    {
-        "version": "2.2.0",
-        "date": "2026-04-25",
-        "title": "기존 상담 다시 보기 + 오디오 재생",
-        "items": [
-            "고객 클릭 시 [신규 녹음 / 기존 상담 보기] 작업 선택 모달",
-            "과거 상담 목록 — 일시·소요·카드수·AI분석 여부 표시, 클릭하면 다시 열림",
-            "이전 상담 화면에서 🎧 녹음 재생 (브라우저 플레이어, 위치 이동·일시정지 가능)",
-            "이전 상담의 화자 라벨 편집·재전사·AI 분석 모두 그대로 가능",
-        ],
-    },
-    {
-        "version": "2.1.0",
-        "date": "2026-04-25",
-        "title": "저장 위치·폴더 구조 사용자화 + 시작 팝업",
-        "items": [
-            "고객 폴더 루트 경로를 설정에서 변경 가능 (📂 찾아보기 다이얼로그 포함)",
-            "신규 고객 자동 생성 서브폴더를 +/- 로 추가/삭제/편집",
-            "앱 시작 시 환영·패치 노트 팝업 (버전 변경 시 자동 재표시)",
-        ],
-    },
-    {
-        "version": "2.0.0",
-        "date": "2026-04-25",
-        "title": "정확도 강화 + 설정 페이지",
-        "items": [
-            "Two-pass 재전사: 실시간 small + 종료 후 medium 으로 정확도 향상",
-            "Whisper 반복 환각 자동 필터링 (매장 음악 환경 대응)",
-            "노이즈 억제 (silero-denoise) — 설정에서 토글",
-            "Whisper 모델·키워드 사전·VAD 임계값 사용자 설정 가능",
-            "Ollama qwen2.5:3b 로 상담 종류별 AI 분석 (요약·체크리스트)",
-        ],
-    },
-    {
-        "version": "1.0.0",
-        "date": "2026-04-22",
-        "title": "초기 정식 출시",
-        "items": [
-            "고객별 자동 폴더 + MP3/WAV/대화전문.md/상담정보.json 저장",
-            "실시간 한국어 녹음·전사 (Whisper + silero-vad)",
-            "수동 화자 토글 (1=나 / 2=고객 / 0=지우기, 카드별 버튼)",
-            "신규/기존 고객 분기 + 상담 종류 (초도/디자인/견적) 선택",
-        ],
-    },
-]
+CHANGELOG = _VERSION_INFO.get("changelog") or []
 
 
 # ========================================
@@ -178,6 +146,88 @@ FOLDER_TEMPLATE = [
     "휴지통",
     "상담기록",  # InterioNote 출력 전용
 ]
+
+# ========================================
+# v2.6.0 L: 계약 진행률 단계
+# ========================================
+CLIENT_STAGES = ["초도", "디자인", "견적", "계약", "시공", "완료"]
+CLIENT_STAGE_DEFAULT = "초도"
+
+# ========================================
+# v2.6.0 K: 추천 태그 (자동완성 시드)
+# 디자이너가 직접 추가하면 누적 학습됨
+# ========================================
+DEFAULT_TAG_SUGGESTIONS = [
+    "확장", "비확장", "올수리", "부분수리",
+    "화이트톤", "우드톤", "모던", "내추럴", "클래식",
+    "예산상", "예산중", "예산하",
+    "신혼", "분양", "투자",
+    "주방단품", "욕실단품", "필름시공",
+]
+
+# ========================================
+# v2.6.0 JJ: OJT 매핑 — 신규 고객 초도상담 전용
+# 사용자별 OJT 양식이 다르므로 settings DB 의
+#   ojt.file_path  (str)
+#   ojt.column_mapping  (JSON dict)
+# 두 키를 마법사로 받음. 아래는 InterioNote 가 제공할 수 있는 "필드" 목록.
+# ========================================
+OJT_FIELD_KEYS = [
+    "consult_date",   # 상담 일자
+    "name",           # 고객명
+    "phone",          # 연락처
+    "address",        # 주소
+    "construction",   # 공사 내용
+    "size",           # 평형
+    "budget",         # 예산
+    "measure_date",   # 실측일
+    "probability",    # A/B/C 진행 확률
+    "memo",           # 비고/메모
+]
+OJT_FIELD_LABELS = {
+    "consult_date": "상담 일자",
+    "name": "고객명",
+    "phone": "연락처",
+    "address": "주소",
+    "construction": "공사 내용",
+    "size": "평형/면적",
+    "budget": "예산",
+    "measure_date": "실측일",
+    "probability": "진행 확률 (A/B/C)",
+    "memo": "비고/메모",
+}
+
+# ========================================
+# v2.8.0 FF: 견적서 자동 작성
+# 사용자가 자기 견적서 양식을 템플릿으로 등록.
+# 가장 자주 쓰는 셀 (고객명/연락처/주소/공사기간/담당자/평형) 을
+# AI 분석 결과의 site_info 와 매핑해서 자동 채움.
+# 실제 견적 항목 (자재비/인건비) 은 사용자가 검토 후 입력.
+# ========================================
+QUOTE_FIELD_KEYS = [
+    "client_name",      # 고객명
+    "client_phone",     # 연락처
+    "site_address",     # 공사현장 주소
+    "construction_period",  # 공사기간
+    "designer_name",    # 담당자
+    "size_pyeong",      # 평형
+    "size_m2",          # 면적 m²
+    "quote_date",       # 견적일
+    "construction_type",# 공사 종류 (전체/주방/욕실/필름 등)
+    "memo",             # 비고
+]
+QUOTE_FIELD_LABELS = {
+    "client_name": "고객명",
+    "client_phone": "연락처",
+    "site_address": "공사현장 주소",
+    "construction_period": "공사기간",
+    "designer_name": "담당자",
+    "size_pyeong": "평형",
+    "size_m2": "면적 (m²)",
+    "quote_date": "견적일",
+    "construction_type": "공사 종류",
+    "memo": "비고",
+}
 
 # ========================================
 # 초기화
