@@ -1,11 +1,8 @@
-# InterioNote 프로젝트 — Claude Code 세션 인수인계
+# InterioNote 프로젝트 — Codex 세션 인수인계
 
-> **다음 세션의 Claude에게**: 이 파일은 이전 Claude가 사용자와 나눈 대화의 전체 맥락입니다.
+> **다음 세션의 Codex에게**: 이 파일은 이전 Codex가 사용자와 나눈 대화의 전체 맥락입니다.
 > 사용자는 처음부터 다시 설명하지 않아도 되도록, 이 파일을 먼저 끝까지 읽고 작업을 이어가 주세요.
 > 마지막 섹션 **"⏭ 다음 세션에서 바로 할 것"** 부터 확인하면 재개 지점이 명확합니다.
->
-> 🔄 **세션 시작 시 반드시**: `C:\InterioNote\PROJECT_STATUS.md` 먼저 읽어 ERP 세션과 협업 상태 파악.
-> 🔄 **매 작업 마무리 시**: 같은 파일 갱신 + `D:\MNInteriorERP\PROJECT_STATUS.md` 에 mirror (자세한 건 본 문서 끝 §"양쪽 세션 동기화").
 
 ---
 
@@ -105,161 +102,6 @@
 ```
 
 같은 날짜·종류가 중복되면 `2026-04-25_초도상담_2`, `_3` 등으로 증가.
-
----
-
-## 🆕 v4.1.0 → v4.1.3 신규 기능 (2026-06-08, **가장 최근**)
-
-### 🛡 v4.1.0 — 3단계 권한 시스템 풀스택
-**역할 (role)**:
-- `superadmin` (한승민 1명, 기존 `master` 자동 마이그레이션) — 모든 권한 무조건 통과
-- `admin` — superadmin 이 임명. permissions JSON 의 키별 부분 권한
-- `user` — 일반. DEFAULT_USER_PERMISSIONS 자동 부여 (본인 한정 작업)
-
-**핵심 파일**:
-- `app/services/permissions.py` (신규) — `can(user, perm)`, `PERMISSION_GROUPS`, `DEFAULT_USER_PERMISSIONS`, `ADMIN_OPTIONAL_PERMISSIONS`, `require_perm()`, `require_superadmin()`
-- DB: `users.permissions TEXT` JSON 컬럼 (마이그레이션 자동)
-- DB 마이그레이션: `UPDATE users SET role = 'superadmin' WHERE role = 'master'` 멱등
-
-**권한 키 (11종)**:
-- **기본 (자동 부여)**: `system.folder_paths` / `system.backup` / `templates.edit` / `contracts.read` / `contracts.write` / `contracts.payments`
-- **어드민 선택**: `users.approve` / `users.create_local` / `users.deactivate` / `system.api_keys` / `system.erp_sync` / `meetings.read_all` / `meetings.delete_any` / `contracts.read_all` / `contracts.write_all`
-
-**JWT 확장**: `create_token()` 에 `permissions` + `email` 필드 포함 (`auth_service.py`)
-
-**API 권한 적용 11곳**: `/api/users/*` 전체 + `/api/supabase/users/*` + `/api/settings/{kakao,naver,naver-ncp,supabase}-api` 모두 권한 체크
-
-**Username 로그인**:
-- `username_to_email("kang_sm")` → `kang_sm@interionote.local` (가짜 이메일 자동 변환)
-- 사용자는 username 만 입력. 이메일도 호환
-- `_USERNAME_RE = r"^[A-Za-z0-9_\-]{3,30}$"`
-
-### 👤 v4.1.1 — 일반 사용자 기본 권한
-모든 사용자가 본인 한정으로 백업·폴더경로·템플릿·견적계약정산 가능. UI 모달의 "기본 권한" 그룹은 초록색 + 자동 부여 배지 + 체크 disabled.
-
-**탭 표시 조건** (`settings.html`):
-- `masterOnly` 대신 `requiresPerm: 'users.approve'` 등 권한 키 기반 필터링
-- `can(perm)` Alpine 메소드가 본인 권한 확인
-
-### 👤 v4.1.2 — 계정 Self-Service + Supabase 단일화
-**핵심 흐름**:
-1. 현재 비번 1번 입력 → 임시 sign-in
-2. `supabase.auth.update_user({email, password})` 호출
-3. `profiles.update({username, display_name})` 동시 호출
-4. username 변경 시 가짜 이메일 자동 동기화
-
-**API**:
-- `POST /api/supabase/me/account` — 한 폼에서 username/email/password/display_name 자유 조합
-- `GET /api/supabase/me` — 본인 정보 (email, is_internal_email, supabase_available, token_has_email)
-
-**UI**: 설정 → 일반 → **내 계정** 섹션 확장. 한 폼에서 모든 변경. 변경 성공 시 새 JWT 발급 → localStorage 자동 갱신 → 로그아웃 없이 진행
-
-**로컬 가입 차단**: `/api/auth/register` 가 Supabase 활성 시 400 반환. `register.html` 도 Supabase 우선 시도 → 503 fallback
-
-### 🐛 v4.1.3 — 핵심 픽스 3건
-1. **JWT email 픽스** (가장 시급했던 버그):
-   - 원인: admin 으로 로그인했는데 `update_my_account` 가 `admin@interionote.local` 로 sign-in 시도 → 실제 Supabase 이메일은 `tmdqor2@gmail.com` → 400 Bad Request 4번
-   - 픽스: Supabase login 시 실제 email 을 JWT 에 저장. `update_my_account` 가 JWT 의 email 우선 사용
-   - ⚠ 사용자 재로그인 1회 필요 (구 토큰에는 email 없음)
-
-2. **사용자 관리 탭 Supabase 통합**:
-   - 새 섹션 **☁ Supabase 가입자** (가입 대기·활성·편집·승인·임명·삭제)
-   - `admin_update_user(user_id, **fields)` + `PATCH /api/supabase/users/{user_id}` — 어드민이 다른 사람 username·display_name 수정
-   - 슈퍼어드민 임명/해제는 슈퍼어드민 전용
-   - 로컬 계정은 "💾 긴급 백업용" 배지
-
-3. **앱 로그 파일 저장** (⭐ Claude 가 직접 읽기):
-   - **경로**: `%LOCALAPPDATA%\InterioNote\logs\app.log` = `C:\Users\tmdqo\AppData\Local\InterioNote\logs\app.log`
-   - RotatingFileHandler 5MB × 4 (총 ~20MB)
-   - 콘솔 + 파일 양쪽 출력 UTF-8
-   - `config.setup_file_logging()` 부팅 시 자동 호출
-   - **다음 세션 Claude 가 사용자 디버깅 요청 시 먼저 Read 로 확인** (캡처·복붙 부담 줄임)
-
-### 📋 사용자가 다음에 해야 할 것 (현재 상태)
-- ✅ 로그아웃 → 재로그인 (admin / 1234) — 새 JWT 받기 (email 포함)
-- ✅ 설정 → 일반 → 계정 설정 변경 → `L27393A013` 로 username 변경
-- ✅ 사용자 관리 탭에서 Supabase 가입자 섹션 확인 (본인 1명 보임)
-- ✅ 동료 가입 테스트 (회원가입 페이지 → 본인 PC 에서 승인)
-
-### ⭐ v4.1.5 — 권한 카탈로그 v3 (35개)
-사용자 결정 11건 반영. 다른 사람 데이터 조회권한 모두 일반 기본화 + 재전사·Ollama 일반화.
-
-- `app/services/permissions.py` — `DEFAULT_USER_PERMISSIONS` (20개) / `ADMIN_OPTIONAL_PERMISSIONS` (23개) / `SUPERADMIN_ONLY_PERMISSIONS` (2개)
-- `ADMIN_DEFAULT_PERMISSIONS` = {`users.approve`} — 어드민 임명 시 자동 부여
-- `_LEGACY_KEY_MAP` — 옛 키 (`system.folder_paths` 등) 새 키로 자동 변환
-
-### 🐛 v4.1.5 추가 — 가짜 이메일 도메인 픽스
-- `@interionote.local` → `@interionote.app` (Supabase reserved TLD 거부 우회)
-- RLS `public_read` 정책으로 anon username → email lookup 허용 (SQL 한 줄)
-- `can()` 헬퍼가 user role 의 permissions 도 인정 (슈퍼어드민이 일반에게도 권한 부여 가능)
-
-### 🐛 v4.1.6 — 3건 픽스
-- email rate limit 시 친절한 메시지 (Dashboard → Confirm email OFF 안내)
-- `profiles.username` 원본 보존 (`.lower()` 제거) + `ilike` 으로 case-insensitive 매칭
-- `profiles.permissions JSONB` 컬럼 + Supabase 사용자 권한 편집 UI/API
-
-### 🐛 v4.1.7 — 5건 픽스
-- `_showToast(msg, kind)` 메소드 추가 (8곳 호출하는데 정의 없었음)
-- 권한 체크박스 `x-model` 양방향 바인딩 (`:checked` + `@change` 패턴이 reactivity 못 잡아서)
-- 로컬 계정 삭제 — admin·본인만 보호 (Supabase 캐시 정리)
-- Supabase 편집 폼 확장 (이메일 표시·승인 토글·비번 리셋 안내)
-
-### ⭐ v4.1.8 — Supabase profiles.role + 어드민 자동 권한
-- SQL: `ALTER TABLE profiles ADD COLUMN role TEXT DEFAULT 'user'`
-- 기존 `is_admin=true` → `role='superadmin'` 마이그레이션
-- `login()` 이 `profile.role` 우선 사용
-- `admin_update_user` 가 `role='admin'` 받으면 `ADMIN_DEFAULT_PERMISSIONS` 자동 부여 + `is_admin` 동기화
-- UI: 등급 select (일반/어드민/슈퍼어드민) + 카드 3개 버튼 (🎖 어드민 임명, ⭐ 슈퍼어드민 임명, ⬇ 강등)
-- **핫픽스**: API 핸들러가 `req.role` 을 service 함수에 전달 안 해서 "변경 항목 없음" 에러 → `role=req.role` 추가
-
-### 🎨 v4.1.9 — 홈 헤더 배지 3단계
-- `index.html` 헤더가 `'master'` 만 보라색 처리하던 옛 코드 → 3단계로 (보라/주황/파랑)
-
-### 🔑 v4.1.x SQL 누적 (Supabase 한 번에)
-```sql
--- v4.1.5: public_read 정책
-DROP POLICY IF EXISTS "self_select" ON profiles;
-CREATE POLICY "public_read" ON profiles FOR SELECT USING (true);
--- v4.1.4: email lookup
-ALTER TABLE profiles ADD COLUMN IF NOT EXISTS email TEXT;
-UPDATE profiles SET email = (SELECT email FROM auth.users WHERE auth.users.id = profiles.id) WHERE email IS NULL;
--- v4.1.6: permissions + 대소문자
-ALTER TABLE profiles ADD COLUMN IF NOT EXISTS permissions JSONB DEFAULT '{}'::jsonb;
-ALTER TABLE profiles DROP CONSTRAINT IF EXISTS profiles_username_key;
-CREATE UNIQUE INDEX IF NOT EXISTS profiles_username_lower_key ON profiles (LOWER(username));
--- v4.1.8: 3단계 role
-ALTER TABLE profiles ADD COLUMN IF NOT EXISTS role TEXT DEFAULT 'user';
-UPDATE profiles SET role = 'superadmin' WHERE is_admin = true AND (role IS NULL OR role = 'user');
-UPDATE profiles SET role = 'user' WHERE role IS NULL;
-```
-
-### Supabase Dashboard 설정 (한 번만)
-Authentication → Sign In / Providers → Email → **Confirm email = OFF** (rate limit 회피)
-
-### 권한 시스템 사용 예시 (다음 Claude 참고)
-```python
-# 어떤 endpoint 든 권한 체크:
-from app.services.permissions import can, is_superadmin
-
-@router.post("/some-endpoint")
-def my_endpoint(request: Request):
-    user = getattr(request.state, "user", None)
-    if not can(user, "system.api_keys"):
-        raise HTTPException(403, "권한 없음 (system.api_keys)")
-    ...
-
-# 슈퍼어드민 전용:
-if not is_superadmin(user):
-    raise HTTPException(403, "슈퍼어드민 전용")
-```
-
-```javascript
-// 프론트엔드 (Alpine):
-// settings.html 의 settingsPage() 안에서
-this.can('users.approve')   // boolean
-this.isSuperadmin           // getter
-this.myPermissions          // dict (loadMyPermissions 으로 채워짐)
-```
 
 ---
 
@@ -620,43 +462,33 @@ Program Files 위치에서 Defender 차단 추정. per-user install 전환 권�
 
 ## ⏭ 다음 세션에서 바로 할 것
 
-### ✅ v4.1.0 → v4.1.3 권한·계정 통합 완료 상태 (2026-06-08 저녁)
-- v4.1.0 (3단계 권한): ✅ DB 마이그레이션 + permissions.py + JWT 확장 + 11곳 API 적용 + UI 모달
-- v4.1.1 (기본 권한): ✅ DEFAULT_USER_PERMISSIONS + 탭 권한 필터링
-- v4.1.2 (계정 self-service): ✅ `/api/supabase/me/account` + UI 폼 + 로컬 가입 차단
-- v4.1.3 (3건 픽스): ✅ JWT email + 사용자 관리 Supabase 통합 + **앱 로그 파일** (`%LOCALAPPDATA%\InterioNote\logs\app.log`)
-- **사용자 검증 대기**: 재로그인 후 비번 오류 픽스 확인 + b04639 마이그레이션 + Supabase 사용자 관리 동작
+### ✅ v3.0.0 Phase 1+2 완료 상태
+- Phase 1 (연락처, 카톡, 필터): ✅ 완료 + 검증
+- Phase 2 (로그인, 사용자 관리): ✅ 완료 + 검증 ("정상작동 확인")
 
-### 🔶 다음 세션 우선순위
+### 🔶 남아있는 즉시 할 항목
 
-1. **b04639 마이그레이션 후속**
-   - 사용자가 self-service 로 `b04639` 로 username 변경 (계정 설정 페이지에서)
-   - 검증 완료 시 STATUS.md 갱신
+1. **`build_update_zip.py` MIN_APP_VERSION 갱신**
+   - 현재: `"2.8.1"` → 변경 후: `"3.0.0"`
+   - 이유: Phase 2 로그인 시스템이 추가되어 이전 버전 클라이언트는 호환 불가
+   - 파일 경로: `C:\InterioNote\build_update_zip.py` (또는 유사한 파일명 확인)
 
-2. **v4.1.x 빌드 + GitHub 업로드**
-   - `version.json` 의 `version` 을 `4.1.3` 으로 갱신
-   - `changelog` 디자이너 관점 1줄 추가
-   - `build_update_zip.py` MIN_APP_VERSION → `4.0.0` (또는 `3.6.0` 도 가능, Supabase 안 쓰면 fallback 됨)
-   - `build.bat` + `make_installer.bat` (per-user install 전환도 같이)
-   - GitHub release v4.1.3 생성 + 인스톨러·zip 자산 업로드
-
-3. **Inno Setup per-user install 전환** (Phase 7B-2 마무리)
+2. **Inno Setup per-user install 전환** (Phase 7B-2 마무리)
    - `.iss` 변경: `DefaultDirName={localappdata}\Programs\{#MyAppName}`, `PrivilegesRequired=lowest`
+   - `make_installer.bat` 재실행 → 새 `InterioNoteSetup-3.0.0.exe` 생성
 
-### 📌 그 다음 가능한 작업 (사용자 피드백 / ERP 협업)
-- 매장 실사용 피드백 기반 버그픽스 (수시)
-- ERP 쪽에서 같은 권한 모델 + Supabase 통합 도입 (ERP 세션 작업)
+3. **GitHub Releases v3.0.0 생성**
+   - 기존 v2.3.0 release 에는 자산 미첨부 상태
+   - 새 v3.0.0 release 만들고 인스톨러 자산 업로드
+
+### 📌 그 다음 가능한 작업 (사용자 피드백 기반)
+- **v3.0.0 Phase 3**: 미정 (사용자 요청 대기)
+- 매장 실사용 피드백 기반 버그픽스
 - PDF 생성 (weasyprint, 한글 폰트) — 오래 보류 중
 - 인식률 개선 (하드웨어 마이크 도입이 가장 효과적)
-- 학습 루프 Tier 3 확장 (데이터 누적 후)
 
 ### 첫 메시지 권장
-**"v4.1.3 권한·계정 통합 작업 완료됐어요! 재로그인하시면 비번 오류 픽스 확인 가능합니다. b04639 마이그레이션 self-service 로 진행하시거나, 바로 v4.1.3 빌드·배포 진행할까요?"**
-
-### 🛠 디버깅 시 (사용자가 에러 보고하면)
-1. **먼저 `%LOCALAPPDATA%\InterioNote\logs\app.log` 를 Read 도구로 확인** (가장 최근 100~200 줄)
-2. 사용자에게 캡처 요청하기 전에 로그에서 원인 추정
-3. 로그에 안 나오는 클라이언트 측 오류만 캡처 요청
+**"v3.0.0 정상 확인됐어요! build_update_zip.py 버전 올리고, 인스톨러 새로 만들어서 GitHub 에 올리면 v3.0.0 배포 완료됩니다. 진행할까요?"**
 
 ### 흔한 피드백 시나리오 + 대응
 
@@ -687,7 +519,6 @@ Program Files 위치에서 Defender 차단 추정. per-user install 전환 권�
 | Whisper 캐시 | `%LOCALAPPDATA%\InterioNote\models_cache\whisper\` |
 | Silero 캐시 (vad+denoise) | `%LOCALAPPDATA%\InterioNote\models_cache\torch_hub\` |
 | 임시 녹음 | `%LOCALAPPDATA%\InterioNote\temp_recording\` |
-| **앱 로그 (v4.1.3+)** | **`%LOCALAPPDATA%\InterioNote\logs\app.log`** ← Claude 가 직접 Read 로 읽을 수 있음. 디버깅 요청 시 먼저 확인. RotatingFileHandler (5MB × 4) |
 | 고객 폴더 루트 | settings DB `paths.client_root` 참조 |
 
 ---
@@ -706,24 +537,11 @@ Program Files 위치에서 Defender 차단 추정. per-user install 전환 권�
 - **PC 마이그레이션** (2026-04-26) — b0463 노트북 → tmdqo 데스크탑, OneDrive 동기화
 - **v3.0.0 Phase 1** (2026-05-03) — 연락처, 카톡 문구, 홈 필터, 담당자 설정
 - **v3.0.0 Phase 2** (2026-05-03) — JWT 로그인, 사용자 관리, bcrypt, 인증 미들웨어
-- **v3.5.x ~ v3.6.0** (2026-06-06~07) — Auth Server·Ollama 데스크톱 위임·자가평가·고객추적·결제정산
-- **v4.0 누적** (2026-06-08 낮) — 결제·정산·ERP sync·초도상담서·학습루프·8필드 고객·NCP·화자구분·Supabase 통합·setuptools 픽스
-- **v4.1.0** (2026-06-08 저녁) — **3단계 RBAC (superadmin/admin/user) + permissions JSON + Username 로그인**
-- **v4.1.1** (2026-06-08 저녁) — DEFAULT_USER_PERMISSIONS (일반 사용자도 본인 작업 가능)
-- **v4.1.2** (2026-06-08 저녁) — 계정 self-service + 로컬 가입 차단 (Supabase 단일화)
-- **v4.1.3** (2026-06-08 저녁) — JWT email 픽스 + 사용자 관리 Supabase 통합 + 앱 로그 파일 저장
-- **v4.1.4** (2026-06-08 밤, ✅ 검증) — `profiles.email` + username→email lookup + 계정 설정 UI 6개
-- **v4.1.5** (2026-06-08 밤, ✅ 검증) — 권한 카탈로그 v3 (35개) + 가짜 이메일 `.local`→`.app` + RLS public_read
-- **v4.1.6** (2026-06-08 밤, ✅ 검증) — email rate limit 안내 + username 대소문자 보존 + profiles.permissions
-- **v4.1.7** (2026-06-08 밤, ✅ 검증) — _showToast 추가 + 체크박스 x-model + 로컬 삭제 완화 + 편집 폼 확장
-- **v4.1.8** (2026-06-08 심야, ✅ 검증) — profiles.role + 어드민 임명 자동 권한 + 등급 변경 UI + 핫픽스(role 전달)
-- **v4.1.9** (2026-06-08 심야, ✅ 검증) — 홈 헤더 배지 3단계 role
-- **이 CLAUDE.md 갱신** (v4.1.9 완료 시점, PROJECT_STATUS.md ERP mirror 됨)
-- **다음**: Phase 2 — 1회성 수정 권한 시스템 (ERP edit_requests 패턴 포팅)
+- **이 AGENTS.md 갱신** (Phase 2 완료 시점)
 
 ---
 
-## 🚨 다음 Claude 에게 마지막 당부
+## 🚨 다음 Codex 에게 마지막 당부
 
 1. **이 문서를 끝까지 읽은 후** 자연스럽게 이어가기 ("v3.0.0 잘 동작하고 계세요?" 등).
 2. **사용자가 명시적으로 요청하기 전까지 새 Phase 코드 작성 금지**.
@@ -742,55 +560,3 @@ Program Files 위치에서 Defender 차단 추정. per-user install 전환 권�
 _이 문서는 v3.0.0 Phase 2 (로그인 + 사용자 관리) 완료 후 갱신되었습니다. (2026-05-03)_
 _사용자 검증: "정상작동 확인"_
 _핵심 미해결: Inno Setup per-user install 전환 + GitHub v3.0.0 release + build_update_zip.py MIN_APP_VERSION 갱신_
-
----
-
-## 🔄 양쪽 세션 동기화 (2026-06-08 신설)
-
-사용자는 **InterioNote** 와 **MN Interior ERP** 두 프로젝트를 별도 Claude Code 채팅 세션에서 동시에 진행합니다. 두 세션이 서로의 진행 현황을 공유하기 위해 **`PROJECT_STATUS.md`** 를 양쪽 폴더에 mirror 합니다.
-
-### 파일 위치
-- `C:\InterioNote\PROJECT_STATUS.md`  ← 이쪽 (InterioNote 세션 담당)
-- `D:\MNInteriorERP\PROJECT_STATUS.md`  ← ERP 세션 담당
-
-두 파일은 항상 같은 내용 (한쪽 갱신 후 즉시 mirror).
-
-### 🔵 새 세션 시작 시 (InterioNote)
-
-1. **`C:\InterioNote\PROJECT_STATUS.md` 먼저 읽기**
-2. ERP 세션이 최근 무엇을 작업했는지 파악
-3. 시작 메시지에 컨텍스트 인지 표시:
-   > "ERP 쪽은 최근 Phase 2 디자이너 CRUD 끝났네요. InterioNote 는 v3.6.0 빌드 대기 상태고요. 오늘은 어디부터 진행할까요?"
-
-### 🟢 매 작업 마무리 시 (InterioNote)
-
-1. 본인 작업 완료 후, **반드시** `PROJECT_STATUS.md` 갱신:
-   - "🕐 마지막 갱신" 섹션 → 시각·세션·사유 업데이트
-   - "🟢 InterioNote 진행 상황" 섹션 갱신
-   - "📋 최근 완료 항목" 표 맨 위에 한 줄 추가
-   - 큰 방향 바뀌면 "다음 작업 큐" 도 조정
-2. **ERP 쪽으로 mirror**:
-   ```bash
-   cp "C:/InterioNote/PROJECT_STATUS.md" "D:/MNInteriorERP/PROJECT_STATUS.md"
-   ```
-
-### ⛔ 반드시 갱신해야 하는 경우
-- 어떤 코드든 추가·수정 후
-- 버전 올림 (`version.json` 갱신)
-- 깃허브 릴리스 / 빌드 배포
-- 사용자가 결정한 큰 방향 변경
-
-### ✅ 안 갱신해도 되는 경우
-- 단순 질문 답변
-- 정보 조회만
-- 디버깅 후 코드 변경 없음
-
-### ⚠ 충돌 방지
-- **본인 프로젝트 섹션만 수정**, 상대 프로젝트 섹션은 건드리지 않기
-- "최근 완료" 표는 **추가만**, 기존 항목 수정 금지
-- 갱신 직전에 다른 쪽이 최신이면 그 내용 위에 추가
-- 충돌 의심 시 사용자에게 확인 요청
-
----
-
-_PROJECT_STATUS.md 동기화 시스템 추가. (2026-06-08)_
